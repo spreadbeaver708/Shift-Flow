@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>勤務入力</title>
+</head>
+<body>
+
+<h1>勤務入力</h1>
+
+<!-- ===================== -->
+<!-- 年月変更フォーム（GET） -->
+<!-- ===================== -->
+<form method="GET">
+    <label>年：</label>
+    <input type="number" name="year" value="{{ year }}">
+
+    <label>月：</label>
+    <input type="number" name="month" value="{{ month }}" min="1" max="12">
+
+    <button type="submit">表示</button>
+</form>
+
+<br><hr><br>
+
+<!-- ===================== -->
+<!-- 勤務保存フォーム（POST） -->
+<!-- ===================== -->
+<form method="POST">
+
+    <!-- 年月をPOSTにも渡すため hiddenで保持 -->
+    <input type="hidden" name="year" value="{{ year }}">
+    <input type="hidden" name="month" value="{{ month }}">
+
+    <table border="1">
+        <tr>
+            <th>日付</th>
+            {% for member in members %}
+                <th>{{ member }}</th>
+            {% endfor %}
+        </tr>
+
+        {% for day in work_days %}
+        <tr>
+            <td>{{ day }}日</td>
+            {% for member in members %}
+            <td>
+                <select name="{{ member }}_{{ day }}">
+                    <option value="出勤">出勤</option>
+                    <option value="休暇">休暇</option>
+                </select>
+            </td>
+            {% endfor %}
+        </tr>
+        {% endfor %}
+    </table>
+
+    <br>
+    <button type="submit">送信</button>
+
+</form>
+
+</body>
+</html>

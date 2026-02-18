@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>管理画面</title>
+</head>
+<body>
+
+<h1>管理画面</h1>
+
+<form method="GET">
+    <label>年：</label>
+    <input type="number" name="year" value="{{ year }}">
+
+    <label>月：</label>
+    <input type="number" name="month" value="{{ month }}" min="1" max="12">
+
+    <button type="submit">表示</button>
+</form>
+
+<br><hr><br>
+
+<table border="1">
+    <tr>
+        <th>年</th>
+        <th>月</th>
+        <th>日</th>
+        <th>名前</th>
+        <th>状態</th>
+    </tr>
+
+    {% for row in rows %}
+    <tr>
+        <td>{{ row[0] }}</td>
+        <td>{{ row[1] }}</td>
+        <td>{{ row[2] }}</td>
+        <td>{{ row[3] }}</td>
+        <td>{{ row[4] }}</td>
+    </tr>
+    {% endfor %}
+</table>
+
+</body>
+</html>
