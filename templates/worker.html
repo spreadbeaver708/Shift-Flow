@@ -1,34 +1,80 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>{{ name }} 勤務入力</title>
+    <title>{{ name }} の勤務入力</title>
+    <style>
+        table {
+            border-collapse: collapse;
+        }
+        th, td {
+            border: 1px solid black;
+            width: 100px;
+            height: 90px;
+            text-align: center;
+            vertical-align: top;
+        }
+        th {
+            background: #eee;
+        }
+        .disabled {
+            color: gray;
+        }
+    </style>
 </head>
 <body>
 
-<h1>{{ name }} さんの勤務入力</h1>
+<h1>{{ name }} の勤務入力</h1>
+
+<!-- 年月変更 -->
+<form method="GET">
+    年：
+    <input type="number" name="year" value="{{ year }}">
+    月：
+    <input type="number" name="month" value="{{ month }}" min="1" max="12">
+    <button type="submit">表示変更</button>
+</form>
+
+<hr>
 
 <form method="POST">
 
     <input type="hidden" name="year" value="{{ year }}">
     <input type="hidden" name="month" value="{{ month }}">
 
-    <table border="1">
+    <table>
         <tr>
-            <th>日付</th>
-            <th>勤務</th>
+            <th>日</th>
+            <th>月</th>
+            <th>火</th>
+            <th>水</th>
+            <th>木</th>
+            <th>金</th>
+            <th>土</th>
         </tr>
 
-        {% for day in work_days %}
+        {% for week in cal %}
         <tr>
-            <td>{{ day }}日</td>
-            <td>
-                <select name="{{ day }}">
-                    <option value="出勤">出勤</option>
-                    <option value="休暇">休暇</option>
-                </select>
-            </td>
+            {% for day in week %}
+                {% if day == 0 %}
+                    <td></td>
+                {% else %}
+                    <td>
+                        <strong>{{ day }}</strong><br>
+
+                        {% if loop.index0 in [0,1,4] %}
+                            <select name="day_{{ day }}">
+                                <option value="出勤">出勤</option>
+                                <option value="休暇">休暇</option>
+                            </select>
+                        {% else %}
+                            <span class="disabled">―</span>
+                        {% endif %}
+                    </td>
+                {% endif %}
+            {% endfor %}
         </tr>
         {% endfor %}
+
     </table>
 
     <br>

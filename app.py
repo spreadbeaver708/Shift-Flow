@@ -27,7 +27,7 @@ def init_db():
 init_db()
 
 # =====================
-# 勤務入力画面
+# 管理入力画面（全員まとめて）
 # =====================
 @app.route("/", methods=["GET", "POST"])
 def index():
@@ -43,7 +43,7 @@ def index():
     work_days = []
     for week in cal:
         for i, day in enumerate(week):
-            if day != 0 and i in [0, 3, 6]:
+            if day != 0 and i in [0, 3, 6]:  # 月・木・日
                 work_days.append(day)
 
     members = ["田中", "佐藤", "鈴木", "高橋", "伊藤"]
@@ -56,7 +56,6 @@ def index():
         conn = sqlite3.connect("shift.db")
         c = conn.cursor()
 
-        # 上書き処理
         c.execute("""
             DELETE FROM shifts
             WHERE year = ? AND month = ?
@@ -85,7 +84,7 @@ def index():
     )
 
 # =====================
-# 管理画面
+# 管理確認画面
 # =====================
 @app.route("/admin")
 def admin():
@@ -117,7 +116,7 @@ def admin():
     )
 
 # =====================
-# 作業者別入力画面
+# 作業者入力画面（個別）
 # =====================
 @app.route("/worker/<name>", methods=["GET", "POST"])
 def worker(name):
@@ -130,47 +129,45 @@ def worker(name):
 
     cal = calendar.monthcalendar(year, month)
 
-    work_days = []
-    for week in cal:
-        for i, day in enumerate(week):
-            if day != 0 and i in [0, 3, 6]:
-                work_days.append(day)
-
     if request.method == "POST":
 
         year = int(request.form.get("year"))
         month = int(request.form.get("month"))
+        cal = calendar.monthcalendar(year, month)
 
         conn = sqlite3.connect("shift.db")
         c = conn.cursor()
 
-        # その人のデータだけ削除（上書き）
         c.execute("""
             DELETE FROM shifts
             WHERE year = ? AND month = ? AND name = ?
         """, (year, month, name))
 
-        for day in work_days:
-            status = request.form.get(f"{day}", "休暇")
+        for week in cal:
+            for i, day in enumerate(week):
+                if day != 0 and i in [0, 1, 4]:  # 月・木・日
+                    status = request.form.get(f"day_{day}", "休暇")
 
-            c.execute("""
-                INSERT INTO shifts (year, month, day, name, status)
-                VALUES (?, ?, ?, ?, ?)
-            """, (year, month, day, name, status))
+                    c.execute("""
+                        INSERT INTO shifts (year, month, day, name, status)
+                        VALUES (?, ?, ?, ?, ?)
+                    """, (year, month, day, name, status))
 
         conn.commit()
         conn.close()
 
-        return f"{name}さんの勤務を保存しました"
+        return f"{name} のシフトを保存しました"
 
     return render_template(
         "worker.html",
         name=name,
-        work_days=work_days,
         year=year,
-        month=month
+        month=month,
+        cal=cal
     )
 
-
+# =====================
+# サーバー起動
+# =====================
 if __name__ == "__main__":
     app.run(debug=True)
