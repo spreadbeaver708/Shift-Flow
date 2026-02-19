@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>ユーザー管理</title>
+    <style>
+        body { font-family: Arial; padding: 20px; max-width: 800px; margin: auto; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+        th { background: #eee; }
+        .form-box { background: #f9f9f9; padding: 20px; border-radius: 8px; margin-bottom: 30px; border: 1px solid #ddd; }
+        .status-on { color: green; font-weight: bold; }
+        .status-off { color: red; font-weight: bold; }
+
+        /* ★追加：グレーの戻るボタン */
+        .btn-back {
+            display: inline-block;
+            background-color: #666;
+            color: white;
+            text-decoration: none;
+            padding: 8px 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            font-size: 0.9em;
+        }
+        .btn-back:hover { background-color: #555; }
+    </style>
+</head>
+<body>
+    <h1>ユーザー管理</h1>
+
+    <a href="{{ url_for('menu') }}" class="btn-back">← メニューに戻る</a>
+
+    <div class="form-box">
+        <h3>新規ユーザー登録</h3>
+        <form method="post">
+            <input type="hidden" name="action" value="add">
+            ID(英数): <input type="text" name="username" required>
+            PW: <input type="password" name="password" required>
+            表示名: <input type="text" name="name" placeholder="例：田中" required>
+            役割: 
+            <select name="role">
+                <option value="worker">作業者 (worker)</option>
+                <option value="admin">管理者 (admin)</option>
+            </select>
+            <button type="submit">登録実行</button>
+        </form>
+    </div>
+
+    <h3>登録済みユーザー一覧</h3>
+    <table>
+        <tr>
+            <th>名前</th><th>ID</th><th>役割</th><th>現在の状態</th><th>操作</th>
+        </tr>
+        {% for user in users %}
+        <tr>
+            <td>{{ user[2] }}</td>
+            <td>{{ user[0] }}</td>
+            <td>{{ user[1] }}</td>
+            <td>
+                {% if user[3] == 1 %}
+                    <span class="status-on">● 有効</span>
+                {% else %}
+                    <span class="status-off">× 停止中</span>
+                {% endif %}
+            </td>
+            <td>
+                {% if user[0] != 'admin' %}
+                <form method="post" style="display:inline;">
+                    <input type="hidden" name="action" value="toggle">
+                    <input type="hidden" name="username" value="{{ user[0] }}">
+                    <input type="hidden" name="current_status" value="{{ user[3] }}">
+                    <button type="submit">
+                        {{ '無効にする' if user[3] == 1 else '有効にする' }}
+                    </button>
+                </form>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+</body>
+</html>

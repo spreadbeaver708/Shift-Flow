@@ -1,83 +1,76 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-<meta charset="UTF-8">
-<title>{{ name }} のシフト入力</title>
-<style>
-body { font-family: Arial; max-width:900px; margin:30px auto;}
-table { border-collapse: collapse; width:100%; }
-th, td { border:1px solid #ccc; padding:5px; text-align:center; width:14%; vertical-align: top; }
-input[type="radio"] { display:none; }
-label { border:1px solid #ccc; padding:5px 10px; margin:2px; border-radius:5px; cursor:pointer; display:inline-block; }
-input[type="radio"]:checked + label { background-color:#4CAF50; color:white; }
-.day-number { font-weight:bold; margin-bottom:5px; display:block; }
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>{{ name }} のシフト入力</title>
+    
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
 
-<h1>{{ name }} のシフト入力</h1>
+<div class="container">
+    <h1>{{ name }} の出欠入力</h1>
 
-<!-- 年・月選択フォーム -->
-<form method="get" action="">
-    <label>年:
-        <select name="year">
+    <a href="{{ url_for('menu') }}" class="btn-back">← メニューに戻る</a>
+
+    <form method="get" action="" class="date-select-form" style="text-align: center; margin-bottom: 10px;">
+        <select name="year" style="font-size: 0.9rem;">
             {% for y in range(2023, 2031) %}
-                <option value="{{ y }}" {% if y == year %}selected{% endif %}>{{ y }}</option>
+                <option value="{{ y }}" {% if y == year %}selected{% endif %}>{{ y }}年</option>
             {% endfor %}
         </select>
-    </label>
-    <label>月:
-        <select name="month">
+        <select name="month" style="font-size: 0.9rem;">
             {% for m in range(1, 13) %}
-                <option value="{{ m }}" {% if m == month %}selected{% endif %}>{{ m }}</option>
+                <option value="{{ m }}" {% if m == month %}selected{% endif %}>{{ m }}月</option>
             {% endfor %}
         </select>
-    </label>
-    <button type="submit">決定</button>
-</form>
+        <button type="submit" style="width: auto; padding: 2px 10px;">決定</button>
+    </form>
 
-<h2>{{ year }}/{{ month }} のカレンダー</h2>
+    <h2 style="font-size: 1rem; text-align: center;">{{ year }}年{{ month }}月</h2>
 
-<!-- シフト入力フォーム -->
-<form method="post">
-<input type="hidden" name="year" value="{{ year }}">
-<input type="hidden" name="month" value="{{ month }}">
+    <form method="post">
+        <input type="hidden" name="year" value="{{ year }}">
+        <input type="hidden" name="month" value="{{ month }}">
 
-<table>
-<tr>
-<th>日</th><th>月</th><th>火</th><th>水</th><th>木</th><th>金</th><th>土</th>
-</tr>
+        <table class="calendar-table">
+            <tr>
+                <th>日</th><th>月</th><th>火</th><th>水</th><th>木</th><th>金</th><th>土</th>
+            </tr>
 
-{% for week in cal %}
-<tr>
-    {% for day in week %}
-        {% set i = loop.index0 %}
-        {% if day == 0 %}
-            <td>-</td>
-        {% elif i in [0,1,4] %} {# 日=0, 月=1, 木=4 #}
-            <td>
-                <span class="day-number">{{ day }}</span>
-                <input type="radio" id="work_{{ day }}" name="day_{{ day }}" value="〇" checked>
-                <label for="work_{{ day }}">〇</label>
-                <input type="radio" id="off_{{ day }}" name="day_{{ day }}" value="×">
-                <label for="off_{{ day }}">×</label>
-            </td>
-        {% else %}
-            <td>
-                <span class="day-number">{{ day }}</span>
-                -
-            </td>
-        {% endif %}
-    {% endfor %}
-</tr>
-{% endfor %}
+            {% for week in cal %}
+            <tr>
+                {% for day in week %}
+                    {% set i = loop.index0 %}
+                    <td>
+                        {% if day == 0 %}
+                            <span style="color: #eee;">-</span>
+                        {% else %}
+                            <span class="day-num">{{ day }}</span>
+                            {% if i in [0,1,4] %} {# 日・月・木 を入力対象に設定 #}
+                                <input type="radio" id="work_{{ day }}" name="day_{{ day }}" value="〇" checked>
+                                <label for="work_{{ day }}" class="radio-label">〇</label>
+                                
+                                <input type="radio" id="off_{{ day }}" name="day_{{ day }}" value="×">
+                                <label for="off_{{ day }}" class="radio-label">×</label>
+                            {% else %}
+                                <span style="color: #ccc;">-</span>
+                            {% endif %}
+                        {% endif %}
+                    </td>
+                {% endfor %}
+            </tr>
+            {% endfor %}
+        </table>
 
-</table>
+        <p><button type="submit" class="btn-save">この内容で保存する</button></p>
+    </form>
 
-<p><button type="submit">保存</button></p>
-</form>
-
-<p><a href="/logout">ログアウト</a></p>
+    <p style="text-align: center; margin-top: 20px;">
+        <a href="{{ url_for('logout') }}" style="color: #888; text-decoration: none; font-size: 0.9rem;">ログアウト</a>
+    </p>
+</div>
 
 </body>
 </html>

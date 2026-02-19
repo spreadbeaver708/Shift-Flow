@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>メニュー</title>
+    <style>
+        body { font-family: Arial; text-align: center; padding-top: 50px; background-color: #f4f4f4; }
+        .btn { display: block; width: 220px; margin: 15px auto; padding: 15px; background: #4CAF50; color: white; text-decoration: none; border-radius: 5px; font-weight: bold; }
+        .btn:hover { background: #45a049; }
+        .admin-btn { background: #2196F3; } /* 管理者用は青色に */
+        .admin-btn:hover { background: #1e88e5; }
+    </style>
+</head>
+<body>
+    <h1>こんにちは、{{ session['name'] or '管理者' }}さん</h1>
+    
+    {% if session['role'] == 'admin' %}
+        <a href="{{ url_for('index') }}" class="btn admin-btn">シフト入力 (管理者一括)</a>
+        <a href="{{ url_for('manage_users') }}" class="btn admin-btn">ユーザー管理 (登録・停止)</a>
+    {% else %}
+        <a href="{{ url_for('worker', name=session['name']) }}" class="btn">自分のシフト入力</a>
+    {% endif %}
+
+    <a href="{{ url_for('admin') }}" class="btn">全体のシフト確認</a>
+
+    <br><br>
+    <a href="{{ url_for('logout') }}" style="color: #666;">ログアウト</a>
+</body>
+</html>

@@ -8,13 +8,25 @@
         table { border-collapse: collapse; width:100%; }
         th, td { border:1px solid #ccc; text-align:center; padding:5px; vertical-align:top; width:14%; }
         .day-number { font-weight:bold; margin-bottom:5px; display:block; }
+        .btn-back {
+            display: inline-block;
+            background-color: #666;
+            color: white;
+            text-decoration: none;
+            padding: 8px 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            font-size: 0.9em;
+        }
+        .btn-back:hover { background-color: #555; }
     </style>
 </head>
 <body>
 
 <h1>管理画面（{{ year }}/{{ month }}）</h1>
 
-<!-- 年・月選択フォーム -->
+<a href="{{ url_for('menu') }}" class="btn-back">← メニューに戻る</a>
+
 <form method="get">
     <label>年：
         <input type="number" name="year" value="{{ year }}">

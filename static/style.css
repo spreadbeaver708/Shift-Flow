@@ -1,0 +1,104 @@
+/* static/style.css */
+:root {
+    --main-color: #4CAF50;
+    --sub-color: #666;
+    --bg-color: #fdfaf5;
+    --text-color: #333;
+}
+
+body {
+    font-family: sans-serif;
+    background-color: var(--bg-color);
+    margin: 0;
+    padding: 10px;
+    box-sizing: border-box;
+}
+
+.container {
+    max-width: 100%;
+    background: #fff;
+    padding: 10px;
+    border-radius: 10px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+}
+
+h1 { font-size: 1.1rem; text-align: center; color: var(--main-color); margin: 10px 0; }
+
+/* --- 戻るボタン --- */
+.btn-back {
+    display: block;
+    background: var(--sub-color);
+    color: #fff;
+    text-align: center;
+    padding: 10px;
+    border-radius: 5px;
+    text-decoration: none;
+    font-size: 0.85rem;
+    margin-bottom: 15px;
+}
+
+/* --- カレンダー（横スクロールさせない設定） --- */
+.calendar-table {
+    width: 100%;
+    table-layout: fixed; /* これで列幅を均等に固定し、画面内に収めます */
+    border-collapse: collapse;
+}
+
+.calendar-table th, .calendar-table td {
+    border: 1px solid #eee;
+    padding: 4px 0; /* 上下のみパディング */
+    text-align: center;
+    font-size: 0.75rem; /* スマホ用に小さく */
+    vertical-align: top;
+    word-break: break-all;
+}
+
+.calendar-table th { background: #f8f1e9; height: 30px; }
+.calendar-table td { height: 60px; }
+
+/* 日付番号 */
+.day-num { display: block; font-weight: bold; margin-bottom: 3px; border-bottom: 1px solid #f9f9f9; }
+
+/* --- 〇×ボタンを極小化 --- */
+input[type="radio"] { display: none; }
+.radio-label {
+    display: inline-block;
+    width: 24px;
+    height: 24px;
+    line-height: 24px;
+    border: 1px solid #ccc;
+    border-radius: 50%; /* 丸ボタン */
+    margin: 1px;
+    cursor: pointer;
+    font-size: 0.7rem;
+    background: #fff;
+}
+input[type="radio"]:checked + .radio-label {
+    background: var(--main-color);
+    color: white;
+    border-color: var(--main-color);
+}
+
+/* 保存ボタン */
+.btn-save {
+    display: block;
+    width: 100%;
+    background: var(--main-color);
+    color: white;
+    border: none;
+    padding: 12px;
+    border-radius: 5px;
+    font-size: 1rem;
+    font-weight: bold;
+    margin-top: 15px;
+}
+
+/* 確認画面での名前表示 */
+.admin-name-tag {
+    font-size: 0.65rem;
+    display: block;
+    line-height: 1.1;
+    margin-bottom: 2px;
+    background: #e8f5e9;
+    border-radius: 2px;
+}
