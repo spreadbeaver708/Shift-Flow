@@ -108,26 +108,27 @@ def index():
     return render_template("index.html", members=members, work_days=work_days, year=year, month=month)
 
 # =====================
-# 管理確認画面
+# 管理確認画面（カレンダー表示）
 # =====================
 @app.route("/admin")
 def admin():
     if "role" not in session or session["role"] != "admin":
         return redirect(url_for("login"))
 
-    year = request.args.get("year", datetime.now().year)
-    month = request.args.get("month", datetime.now().month)
-    year = int(year)
-    month = int(month)
+    year = int(request.args.get("year", datetime.now().year))
+    month = int(request.args.get("month", datetime.now().month))
 
+    # カレンダー作成
+    cal = calendar.monthcalendar(year, month)
+
+    # データベースからシフト取得
     conn = sqlite3.connect("shift.db")
     c = conn.cursor()
-    c.execute("SELECT year, month, day, name, status FROM shifts WHERE year=? AND month=? ORDER BY day, name",
-              (year, month))
-    rows = c.fetchall()
+    c.execute("SELECT day, name, status FROM shifts WHERE year=? AND month=?", (year, month))
+    rows = c.fetchall()  # [(day, name, status), ...]
     conn.close()
 
-    return render_template("admin.html", rows=rows, year=year, month=month)
+    return render_template("admin.html", year=year, month=month, cal=cal, rows=rows)
 
 # =====================
 # 作業者入力画面（個別）

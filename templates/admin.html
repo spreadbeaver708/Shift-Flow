@@ -1,42 +1,57 @@
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="UTF-8">
     <title>管理画面</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width:900px; margin:30px auto; }
+        table { border-collapse: collapse; width:100%; }
+        th, td { border:1px solid #ccc; text-align:center; padding:5px; vertical-align:top; width:14%; }
+        .day-number { font-weight:bold; margin-bottom:5px; display:block; }
+    </style>
 </head>
 <body>
 
-<h1>管理画面</h1>
+<h1>管理画面（{{ year }}/{{ month }}）</h1>
 
-<form method="GET">
-    <label>年：</label>
-    <input type="number" name="year" value="{{ year }}">
-
-    <label>月：</label>
-    <input type="number" name="month" value="{{ month }}" min="1" max="12">
-
+<!-- 年・月選択フォーム -->
+<form method="get">
+    <label>年：
+        <input type="number" name="year" value="{{ year }}">
+    </label>
+    <label>月：
+        <input type="number" name="month" value="{{ month }}" min="1" max="12">
+    </label>
     <button type="submit">表示</button>
 </form>
 
-<br><hr><br>
+<br>
 
-<table border="1">
-    <tr>
-        <th>年</th>
-        <th>月</th>
-        <th>日</th>
-        <th>名前</th>
-        <th>状態</th>
-    </tr>
+<table>
+<tr>
+<th>日</th><th>月</th><th>火</th><th>水</th><th>木</th><th>金</th><th>土</th>
+</tr>
 
-    {% for row in rows %}
-    <tr>
-        <td>{{ row[0] }}</td>
-        <td>{{ row[1] }}</td>
-        <td>{{ row[2] }}</td>
-        <td>{{ row[3] }}</td>
-        <td>{{ row[4] }}</td>
-    </tr>
+{% for week in cal %}
+<tr>
+    {% for day in week %}
+        {% set i = loop.index0 %}
+        {% if day == 0 %}
+            <td>-</td>
+        {% else %}
+            <td>
+                <span class="day-number">{{ day }}</span>
+                {% for row in rows %}
+                    {% if row[0] == day and row[2] == '〇' %}
+                        {{ row[1] }}<br>
+                    {% endif %}
+                {% endfor %}
+            </td>
+        {% endif %}
     {% endfor %}
+</tr>
+{% endfor %}
+
 </table>
 
 </body>

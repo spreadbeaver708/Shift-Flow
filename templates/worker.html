@@ -1,86 +1,83 @@
 <!DOCTYPE html>
-<html>
+<html lang="ja">
 <head>
-    <title>{{ name }} の勤務入力</title>
-    <style>
-        table {
-            border-collapse: collapse;
-        }
-        th, td {
-            border: 1px solid black;
-            width: 100px;
-            height: 90px;
-            text-align: center;
-            vertical-align: top;
-        }
-        th {
-            background: #eee;
-        }
-        .disabled {
-            color: gray;
-        }
-    </style>
+<meta charset="UTF-8">
+<title>{{ name }} のシフト入力</title>
+<style>
+body { font-family: Arial; max-width:900px; margin:30px auto;}
+table { border-collapse: collapse; width:100%; }
+th, td { border:1px solid #ccc; padding:5px; text-align:center; width:14%; vertical-align: top; }
+input[type="radio"] { display:none; }
+label { border:1px solid #ccc; padding:5px 10px; margin:2px; border-radius:5px; cursor:pointer; display:inline-block; }
+input[type="radio"]:checked + label { background-color:#4CAF50; color:white; }
+.day-number { font-weight:bold; margin-bottom:5px; display:block; }
+</style>
 </head>
 <body>
 
-<h1>{{ name }} の勤務入力</h1>
+<h1>{{ name }} のシフト入力</h1>
 
-<!-- 年月変更 -->
-<form method="GET">
-    年：
-    <input type="number" name="year" value="{{ year }}">
-    月：
-    <input type="number" name="month" value="{{ month }}" min="1" max="12">
-    <button type="submit">表示変更</button>
-</form>
-
-<hr>
-
-<form method="POST">
-
-    <input type="hidden" name="year" value="{{ year }}">
-    <input type="hidden" name="month" value="{{ month }}">
-
-    <table>
-        <tr>
-            <th>日</th>
-            <th>月</th>
-            <th>火</th>
-            <th>水</th>
-            <th>木</th>
-            <th>金</th>
-            <th>土</th>
-        </tr>
-
-        {% for week in cal %}
-        <tr>
-            {% for day in week %}
-                {% if day == 0 %}
-                    <td></td>
-                {% else %}
-                    <td>
-                        <strong>{{ day }}</strong><br>
-
-                        {% if loop.index0 in [0,1,4] %}
-                            <select name="day_{{ day }}">
-                                <option value="出勤">出勤</option>
-                                <option value="休暇">休暇</option>
-                            </select>
-                        {% else %}
-                            <span class="disabled">―</span>
-                        {% endif %}
-                    </td>
-                {% endif %}
+<!-- 年・月選択フォーム -->
+<form method="get" action="">
+    <label>年:
+        <select name="year">
+            {% for y in range(2023, 2031) %}
+                <option value="{{ y }}" {% if y == year %}selected{% endif %}>{{ y }}</option>
             {% endfor %}
-        </tr>
-        {% endfor %}
-
-    </table>
-
-    <br>
-    <button type="submit">保存</button>
-
+        </select>
+    </label>
+    <label>月:
+        <select name="month">
+            {% for m in range(1, 13) %}
+                <option value="{{ m }}" {% if m == month %}selected{% endif %}>{{ m }}</option>
+            {% endfor %}
+        </select>
+    </label>
+    <button type="submit">決定</button>
 </form>
+
+<h2>{{ year }}/{{ month }} のカレンダー</h2>
+
+<!-- シフト入力フォーム -->
+<form method="post">
+<input type="hidden" name="year" value="{{ year }}">
+<input type="hidden" name="month" value="{{ month }}">
+
+<table>
+<tr>
+<th>日</th><th>月</th><th>火</th><th>水</th><th>木</th><th>金</th><th>土</th>
+</tr>
+
+{% for week in cal %}
+<tr>
+    {% for day in week %}
+        {% set i = loop.index0 %}
+        {% if day == 0 %}
+            <td>-</td>
+        {% elif i in [0,1,4] %} {# 日=0, 月=1, 木=4 #}
+            <td>
+                <span class="day-number">{{ day }}</span>
+                <input type="radio" id="work_{{ day }}" name="day_{{ day }}" value="〇" checked>
+                <label for="work_{{ day }}">〇</label>
+                <input type="radio" id="off_{{ day }}" name="day_{{ day }}" value="×">
+                <label for="off_{{ day }}">×</label>
+            </td>
+        {% else %}
+            <td>
+                <span class="day-number">{{ day }}</span>
+                -
+            </td>
+        {% endif %}
+    {% endfor %}
+</tr>
+{% endfor %}
+
+</table>
+
+<p><button type="submit">保存</button></p>
+</form>
+
+<p><a href="/logout">ログアウト</a></p>
 
 </body>
 </html>
