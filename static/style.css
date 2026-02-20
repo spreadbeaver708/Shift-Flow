@@ -1,104 +1,64 @@
 /* static/style.css */
-:root {
-    --main-color: #4CAF50;
-    --sub-color: #666;
-    --bg-color: #fdfaf5;
-    --text-color: #333;
+:root { 
+    --entry: #4CAF50;    /* 緑 */
+    --confirm: #FF9800;  /* オレンジ */
+    --manage: #673AB7;   /* 紫 */
+    --sub: #666; 
+    --bg: #f4f4f4; 
 }
 
-body {
-    font-family: sans-serif;
-    background-color: var(--bg-color);
-    margin: 0;
-    padding: 10px;
-    box-sizing: border-box;
-}
+body { font-family: sans-serif; background: var(--bg); margin: 0; padding: 10px; display: flex; justify-content: center; }
+.container { width: 100%; max-width: 900px; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); box-sizing: border-box; }
+h1 { font-size: 1.4rem; text-align: center; color: #333; margin-bottom: 20px; }
 
-.container {
-    max-width: 100%;
-    background: #fff;
-    padding: 10px;
-    border-radius: 10px;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-}
-
-h1 { font-size: 1.1rem; text-align: center; color: var(--main-color); margin: 10px 0; }
-
-/* --- 戻るボタン --- */
+/* 統一「戻るボタン」スタイル */
 .btn-back {
-    display: block;
-    background: var(--sub-color);
-    color: #fff;
-    text-align: center;
-    padding: 10px;
-    border-radius: 5px;
-    text-decoration: none;
-    font-size: 0.85rem;
-    margin-bottom: 15px;
+    display: block; width: 100%; max-width: 280px; margin: 0 auto 20px; padding: 12px;
+    background: var(--sub); color: white; text-align: center; text-decoration: none; font-weight: bold;
+    border-radius: 10px; border-bottom: 4px solid #444; box-sizing: border-box;
 }
 
-/* --- カレンダー（横スクロールさせない設定） --- */
-.calendar-table {
-    width: 100%;
-    table-layout: fixed; /* これで列幅を均等に固定し、画面内に収めます */
-    border-collapse: collapse;
+/* メニューボタン */
+.menu-btn {
+    display: block; width: 280px; margin: 15px auto; padding: 18px;
+    text-align: center; text-decoration: none; font-weight: bold;
+    border-radius: 10px; border: 2px solid rgba(0,0,0,0.1); transition: 0.2s; color: white;
+}
+.btn-entry { background: var(--entry); border-bottom: 4px solid #388E3C; }
+.btn-confirm { background: var(--confirm); border-bottom: 4px solid #E68A00; }
+.btn-manage { background: var(--manage); border-bottom: 4px solid #512DA8; }
+
+/* ★修正：月切り替えボタン（提出画面と同じ立体感へ） */
+.btn-month {
+    display: inline-block; padding: 10px 20px; border-radius: 10px;
+    text-decoration: none; font-weight: bold; color: white; border: none;
+    cursor: pointer; border-bottom: 4px solid rgba(0,0,0,0.2); box-sizing: border-box;
+}
+.btn-save-colored { 
+    background: var(--entry); color: white; width: 100%; padding: 15px; margin-top: 20px; 
+    border-radius: 10px; border-bottom: 4px solid #388E3C; font-weight: bold; font-size: 1rem; border: none; cursor: pointer;
+}
+.active-month { border: 3px solid #000 !important; box-shadow: 0 0 8px rgba(0,0,0,0.3); transform: scale(1.05); }
+
+/* カレンダー関連 */
+.calendar-table { width: 100%; table-layout: fixed; border-collapse: collapse; margin-top: 10px; }
+.calendar-table th, .calendar-table td { border: 1px solid #ddd; text-align: center; vertical-align: top; }
+.calendar-table th { background: #eee; padding: 8px 0; }
+
+@media (max-width: 767px) {
+    .calendar-table td { height: 105px; font-size: 0.8rem; }
+    .radio-label { width: 44px; height: 44px; line-height: 44px; font-size: 1.1rem; margin: 4px 1px; }
+}
+@media (min-width: 768px) {
+    .calendar-table td { height: 135px; font-size: 1rem; }
+    .radio-label { width: 48px; height: 48px; line-height: 48px; font-size: 1.2rem; margin: 5px; }
 }
 
-.calendar-table th, .calendar-table td {
-    border: 1px solid #eee;
-    padding: 4px 0; /* 上下のみパディング */
-    text-align: center;
-    font-size: 0.75rem; /* スマホ用に小さく */
-    vertical-align: top;
-    word-break: break-all;
-}
-
-.calendar-table th { background: #f8f1e9; height: 30px; }
-.calendar-table td { height: 60px; }
-
-/* 日付番号 */
-.day-num { display: block; font-weight: bold; margin-bottom: 3px; border-bottom: 1px solid #f9f9f9; }
-
-/* --- 〇×ボタンを極小化 --- */
 input[type="radio"] { display: none; }
-.radio-label {
-    display: inline-block;
-    width: 24px;
-    height: 24px;
-    line-height: 24px;
-    border: 1px solid #ccc;
-    border-radius: 50%; /* 丸ボタン */
-    margin: 1px;
-    cursor: pointer;
-    font-size: 0.7rem;
-    background: #fff;
-}
-input[type="radio"]:checked + .radio-label {
-    background: var(--main-color);
-    color: white;
-    border-color: var(--main-color);
-}
+.radio-label { display: inline-block; border: 1px solid #ccc; border-radius: 50%; cursor: pointer; background: #fff; }
+input[type="radio"]:checked + .radio-label { background: var(--entry); color: white; border-color: var(--entry); }
 
-/* 保存ボタン */
-.btn-save {
-    display: block;
-    width: 100%;
-    background: var(--main-color);
-    color: white;
-    border: none;
-    padding: 12px;
-    border-radius: 5px;
-    font-size: 1rem;
-    font-weight: bold;
-    margin-top: 15px;
-}
-
-/* 確認画面での名前表示 */
-.admin-name-tag {
-    font-size: 0.65rem;
-    display: block;
-    line-height: 1.1;
-    margin-bottom: 2px;
-    background: #e8f5e9;
-    border-radius: 2px;
-}
+/* フォーム入力 */
+input[type="text"], input[type="password"], select { width: 100%; padding: 12px; margin: 8px 0; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; font-size: 16px; }
+.remark-input { width: 95%; font-size: 0.7rem; border: 1px solid #ddd; padding: 3px; border-radius: 3px; }
+.shift-tag { display: block; margin-bottom: 2px; border-radius: 3px; padding: 2px; font-size: 0.65rem; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
