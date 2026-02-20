@@ -2,28 +2,27 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <title>メニュー</title>
-    <style>
-        body { font-family: Arial; text-align: center; padding-top: 50px; background-color: #f4f4f4; }
-        .btn { display: block; width: 220px; margin: 15px auto; padding: 15px; background: #4CAF50; color: white; text-decoration: none; border-radius: 5px; font-weight: bold; }
-        .btn:hover { background: #45a049; }
-        .admin-btn { background: #2196F3; } /* 管理者用は青色に */
-        .admin-btn:hover { background: #1e88e5; }
-    </style>
 </head>
 <body>
-    <h1>こんにちは、{{ session['name'] or '管理者' }}さん</h1>
-    
-    {% if session['role'] == 'admin' %}
-        <a href="{{ url_for('index') }}" class="btn admin-btn">シフト入力 (管理者一括)</a>
-        <a href="{{ url_for('manage_users') }}" class="btn admin-btn">ユーザー管理 (登録・停止)</a>
-    {% else %}
-        <a href="{{ url_for('worker', name=session['name']) }}" class="btn">自分のシフト入力</a>
-    {% endif %}
+    <div class="container" style="text-align: center; max-width: 500px; margin-top: 50px; padding: 30px;">
+        <h1 style="color: #333;">こんにちは、{{ session['name'] }}さん</h1>
+        <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
 
-    <a href="{{ url_for('admin') }}" class="btn">全体のシフト確認</a>
+        {% if session['role'] == 'admin' %}
+            <a href="{{ url_for('index') }}" class="menu-btn btn-entry">シフト入力 (管理者)</a>
+            <a href="{{ url_for('manage_users') }}" class="menu-btn btn-manage">ユーザー管理</a>
+        {% else %}
+            <a href="{{ url_for('worker', name=session['name']) }}" class="menu-btn btn-entry">自分のシフト入力</a>
+        {% endif %}
 
-    <br><br>
-    <a href="{{ url_for('logout') }}" style="color: #666;">ログアウト</a>
+        <a href="{{ url_for('admin') }}" class="menu-btn btn-confirm">全体のシフト確認</a>
+
+        <div style="margin-top: 40px;">
+            <a href="{{ url_for('logout') }}" style="color: #888; text-decoration: none; font-size: 0.9rem;">ログアウト</a>
+        </div>
+    </div>
 </body>
 </html>

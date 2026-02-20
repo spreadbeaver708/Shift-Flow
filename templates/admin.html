@@ -1,70 +1,43 @@
 <!DOCTYPE html>
-<html>
+<html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>管理画面</title>
-    <style>
-        body { font-family: Arial, sans-serif; max-width:900px; margin:30px auto; }
-        table { border-collapse: collapse; width:100%; }
-        th, td { border:1px solid #ccc; text-align:center; padding:5px; vertical-align:top; width:14%; }
-        .day-number { font-weight:bold; margin-bottom:5px; display:block; }
-        .btn-back {
-            display: inline-block;
-            background-color: #666;
-            color: white;
-            text-decoration: none;
-            padding: 8px 15px;
-            border-radius: 5px;
-            margin-bottom: 20px;
-            font-size: 0.9em;
-        }
-        .btn-back:hover { background-color: #555; }
-    </style>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <title>全体確認</title>
 </head>
 <body>
+    <div class="container">
+        <h1>シフト確認（{{ year }}/{{ month }}）</h1>
+        <a href="{{ url_for('menu') }}" class="btn-back">← メニューに戻る</a>
 
-<h1>管理画面（{{ year }}/{{ month }}）</h1>
+        <div style="display: flex; gap: 10px; margin-bottom: 20px; justify-content: center;">
+            <a href="{{ url_for('admin', year=now_y, month=now_m) }}" class="btn-month {% if year==now_y and month==now_m %}active-month{% endif %}" style="background: var(--entry); border-bottom-color: #388E3C;">今月 ({{ now_m }}月)</a>
+            <a href="{{ url_for('admin', year=next_y, month=next_m) }}" class="btn-month {% if year==next_y and month==next_m %}active-month{% endif %}" style="background: var(--confirm); border-bottom-color: #E68A00;">翌月 ({{ next_m }}月)</a>
+        </div>
 
-<a href="{{ url_for('menu') }}" class="btn-back">← メニューに戻る</a>
-
-<form method="get">
-    <label>年：
-        <input type="number" name="year" value="{{ year }}">
-    </label>
-    <label>月：
-        <input type="number" name="month" value="{{ month }}" min="1" max="12">
-    </label>
-    <button type="submit">表示</button>
-</form>
-
-<br>
-
-<table>
-<tr>
-<th>日</th><th>月</th><th>火</th><th>水</th><th>木</th><th>金</th><th>土</th>
-</tr>
-
-{% for week in cal %}
-<tr>
-    {% for day in week %}
-        {% set i = loop.index0 %}
-        {% if day == 0 %}
-            <td>-</td>
-        {% else %}
-            <td>
-                <span class="day-number">{{ day }}</span>
-                {% for row in rows %}
-                    {% if row[0] == day and row[2] == '〇' %}
-                        {{ row[1] }}<br>
+        <table class="calendar-table">
+            <tr><th>日</th><th>月</th><th>火</th><th>水</th><th>木</th><th>金</th><th>土</th></tr>
+            {% for week in cal %}
+            <tr>
+                {% for day in week %}
+                <td>
+                    {% if day != 0 %}
+                        <b style="display:block; border-bottom:1px solid #f0f0f0; margin-bottom:3px;">{{ day }}</b>
+                        {% for row in rows %}
+                            {% if row[0] == day and row[2] == '〇' %}
+                                <div class="shift-tag" style="background:{{ row[3] }}; {% if row[4] %}cursor:pointer; font-weight:bold;{% endif %}"
+                                     {% if row[4] %} onclick="alert('【{{ row[1] }}さんの備考】\n{{ row[4] }}')" {% endif %}>
+                                    {% if row[4] %}☆{% endif %}{{ row[1] }}
+                                </div>
+                            {% endif %}
+                        {% endfor %}
                     {% endif %}
+                </td>
                 {% endfor %}
-            </td>
-        {% endif %}
-    {% endfor %}
-</tr>
-{% endfor %}
-
-</table>
-
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
 </body>
 </html>
