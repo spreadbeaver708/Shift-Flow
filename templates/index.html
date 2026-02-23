@@ -4,16 +4,21 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-    <title>シフト入力</title>
+    <title>シフト提出</title>
 </head>
 <body>
 <div class="container">
-    <h1>{{ name }} のシフト入力</h1>
+    <h1>{{ name }} のシフト提出</h1>
     <a href="{{ url_for('menu') }}" class="btn-back">← メニューに戻る</a>
 
-    <div style="display: flex; gap: 10px; margin-bottom: 20px; justify-content: center;">
-        <a href="{{ url_for('index', year=now_y, month=now_m) }}" class="btn-month {% if year==now_y and month==now_m %}active-month{% endif %}" style="background: var(--entry);">当月 ({{ now_m }}月)</a>
-        <a href="{{ url_for('index', year=next_y, month=next_m) }}" class="btn-month {% if year==next_y and month==next_m %}active-month{% endif %}" style="background: var(--confirm);">翌月 ({{ next_m }}月)</a>
+    <div style="display: flex; gap: 8px; margin-bottom: 20px; justify-content: center;">
+        {% set base_url = 'worker' if session['role'] == 'worker' else 'index' %}
+        <a href="{{ url_for(base_url, name=name, year=now_y, month=now_m) if base_url == 'worker' else url_for(base_url, year=now_y, month=now_m) }}" 
+           class="btn-month {% if year==now_y and month==now_m %}active-month{% endif %}" 
+           style="background: var(--entry); border-bottom-color: #388E3C;">今月 ({{ now_m }}月)</a>
+        <a href="{{ url_for(base_url, name=name, year=next_y, month=next_m) if base_url == 'worker' else url_for(base_url, year=next_y, month=next_m) }}" 
+           class="btn-month {% if year==next_y and month==next_m %}active-month{% endif %}" 
+           style="background: var(--confirm); border-bottom-color: #E68A00;">翌月 ({{ next_m }}月)</a>
     </div>
 
     <form method="post">
@@ -25,22 +30,22 @@
                 {% set i = loop.index0 %}
                 <td>
                     {% if day != 0 %}
-                        <b>{{ day }}</b><br>
+                        <b style="font-size: 1.1rem;">{{ day }}</b><br>
                         {% if i in [0, 1, 4] %}
                             {% set s = shifts.get(day, {'status':'〇', 'remark':''}) %}
                             <input type="radio" id="ok_{{day}}" name="day_{{day}}" value="〇" {% if s.status == '〇' %}checked{% endif %}>
                             <label for="ok_{{day}}" class="radio-label">〇</label>
                             <input type="radio" id="ng_{{day}}" name="day_{{day}}" value="×" {% if s.status == '×' %}checked{% endif %}>
                             <label for="ng_{{day}}" class="radio-label">×</label>
-                            <input type="text" name="remark_{{day}}" value="{{ s.remark }}" placeholder="備考" class="remark-input">
-                        {% else %}<span style="color:#eee;">-</span>{% endif %}
+                            <input type="text" name="remark_{{day}}" value="{{ s.remark }}" placeholder="メモ" class="remark-input">
+                        {% else %}<div style="color:#ddd; margin-top:10px;">-</div>{% endif %}
                     {% endif %}
                 </td>
                 {% endfor %}
             </tr>
             {% endfor %}
         </table>
-        <button type="submit" class="btn-save-colored">この内容で保存する</button>
+        <button type="submit" class="btn-save-colored">この内容でシフトを提出する</button>
     </form>
 </div>
 </body>

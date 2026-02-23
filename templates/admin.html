@@ -11,7 +11,7 @@
         <h1>シフト確認（{{ year }}/{{ month }}）</h1>
         <a href="{{ url_for('menu') }}" class="btn-back">← メニューに戻る</a>
 
-        <div style="display: flex; gap: 10px; margin-bottom: 20px; justify-content: center;">
+        <div style="display: flex; gap: 8px; margin-bottom: 20px; justify-content: center;">
             <a href="{{ url_for('admin', year=now_y, month=now_m) }}" class="btn-month {% if year==now_y and month==now_m %}active-month{% endif %}" style="background: var(--entry); border-bottom-color: #388E3C;">今月 ({{ now_m }}月)</a>
             <a href="{{ url_for('admin', year=next_y, month=next_m) }}" class="btn-month {% if year==next_y and month==next_m %}active-month{% endif %}" style="background: var(--confirm); border-bottom-color: #E68A00;">翌月 ({{ next_m }}月)</a>
         </div>
