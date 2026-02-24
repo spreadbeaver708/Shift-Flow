@@ -11,10 +11,6 @@
         <h1>ユーザー管理</h1>
         <a href="{{ url_for('menu') }}" class="btn-back">← メニューに戻る</a>
 
-        {% with msgs = get_flashed_messages() %}
-          {% if msgs %}<p class="error" style="background:#fff0f0;">{{ msgs[0] }}</p>{% endif %}
-        {% endwith %}
-
         <div style="background:#f9f9f9; padding:15px; border-radius:10px; border:1px solid #ddd; margin-bottom:20px;">
             <form method="post" id="user-form">
                 <input type="hidden" name="action" value="add">
@@ -22,7 +18,7 @@
                 <label>パスワード</label><input type="password" name="password" id="f_pass" required>
                 <label>お名前</label><input type="text" name="name" id="f_name" required>
                 <div style="display:flex; gap:20px; align-items:center; margin:10px 0;">
-                    <div>色設定：<input type="color" name="color" id="f_color" value="#e8f5e9" style="width:50px; height:35px;"></div>
+                    <div>色設定：<input type="color" name="color" id="f_color" value="#e8f5e9" style="width:60px; height:35px;"></div>
                     <div style="flex-grow:1;">権限：<select name="role" id="f_role"><option value="worker">職員</option><option value="admin">管理者</option></select></div>
                 </div>
                 <button type="submit" id="submit-btn" class="menu-btn btn-manage" style="width:100%; border:none;">登録 / 修正保存</button>
@@ -37,7 +33,7 @@
                     <button type="button" class="btn-month" style="background:#FF9800; padding:5px 10px; font-size:0.75rem;" onclick="fillForm('{{user[0]}}', '{{user[1]}}', '{{user[3]}}', '{{user[2]}}', '{{user[5]}}')">修正</button>
                     {% if user[0] != 'admin' %}
                     <form method="post" style="display:inline;"><input type="hidden" name="action" value="toggle"><input type="hidden" name="username" value="{{ user[0] }}"><input type="hidden" name="current_status" value="{{ user[4] }}"><button type="submit" class="btn-month" style="padding:5px 8px; font-size:0.75rem; background:{{ '#FF5722' if user[4]==1 else '#2196F3' }};">{{ '停止' if user[4]==1 else '復活' }}</button></form>
-                    <form method="post" style="display:inline;" onsubmit="return confirm('削除しますか？過去のシフトもすべて消えます。');"><input type="hidden" name="action" value="delete"><input type="hidden" name="username" value="{{ user[0] }}"><button type="submit" class="btn-month" style="padding:5px 8px; font-size:0.75rem; background:#666;">削除</button></form>
+                    <form method="post" style="display:inline;" onsubmit="return confirm('本当に削除しますか？');"><input type="hidden" name="action" value="delete"><input type="hidden" name="username" value="{{ user[0] }}"><button type="submit" class="btn-month" style="padding:5px 8px; font-size:0.75rem; background:#666;">削除</button></form>
                     {% else %}<span style="color:#bbb; font-size:0.7rem;">(保護)</span>{% endif %}
                 </td>
             </tr>

@@ -9,17 +9,24 @@
 <body>
     <div class="container" style="text-align: center; max-width: 500px; margin-top: 50px; padding: 30px;">
         <h1>こんにちは、{{ session['name'] }}さん</h1>
+        
         {% if unsubmitted %}
-            <div class="error" style="margin-bottom: 15px;">⚠ {{ next_m }}月分のシフトが未提出です</div>
+            <div class="error" style="border: 2px solid #FF0000; margin-bottom: 15px;">
+                ⚠ {{ next_m }}月分のシフトが未提出です
+            </div>
         {% endif %}
+
         <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
+
         {% if session['role'] == 'admin' %}
             <a href="{{ url_for('index') }}" class="menu-btn btn-entry">シフト入力 (管理者)</a>
             <a href="{{ url_for('manage_users') }}" class="menu-btn btn-manage">ユーザー管理</a>
         {% else %}
             <a href="{{ url_for('worker', name=session['name']) }}" class="menu-btn btn-entry">自分のシフト入力</a>
         {% endif %}
+
         <a href="{{ url_for('admin') }}" class="menu-btn btn-confirm">全体のシフト確認</a>
+
         <div style="margin-top: 40px;">
             <a href="{{ url_for('logout') }}" style="color: #888; text-decoration: none; font-size: 0.9rem;">ログアウト</a>
         </div>

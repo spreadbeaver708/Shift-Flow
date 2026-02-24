@@ -12,11 +12,11 @@
     <a href="{{ url_for('menu') }}" class="btn-back">← メニューに戻る</a>
 
     <div style="display: flex; gap: 8px; margin-bottom: 20px; justify-content: center;">
-        {% set base_url = 'worker' if session['role'] == 'worker' else 'index' %}
-        <a href="{{ url_for(base_url, name=name, year=now_y, month=now_m) if base_url == 'worker' else url_for(base_url, year=now_y, month=now_m) }}" 
+        {% set base = 'worker' if session['role'] == 'worker' else 'index' %}
+        <a href="{{ url_for(base, name=name, year=now_y, month=now_m) if base=='worker' else url_for(base, year=now_y, month=now_m) }}" 
            class="btn-month {% if year==now_y and month==now_m %}active-month{% endif %}" 
            style="background: var(--entry); border-bottom-color: #388E3C;">今月 ({{ now_m }}月)</a>
-        <a href="{{ url_for(base_url, name=name, year=next_y, month=next_m) if base_url == 'worker' else url_for(base_url, year=next_y, month=next_m) }}" 
+        <a href="{{ url_for(base, name=name, year=next_y, month=next_m) if base=='worker' else url_for(base, year=next_y, month=next_m) }}" 
            class="btn-month {% if year==next_y and month==next_m %}active-month{% endif %}" 
            style="background: var(--confirm); border-bottom-color: #E68A00;">翌月 ({{ next_m }}月)</a>
     </div>
@@ -45,8 +45,27 @@
             </tr>
             {% endfor %}
         </table>
-        <button type="submit" class="btn-save-colored">この内容でシフトを提出する</button>
+        <button type="submit" class="btn-save-colored">この内容で保存する</button>
     </form>
 </div>
+
+<script>
+    const params = new URLSearchParams(window.location.search);
+    // 今月分を提出した時だけ「来月分も入れますか？」を聞く
+    if (params.get('submitted') === 'true' && {{ month }} == {{ now_m }}) {
+        if (confirm("送信されました。続けて来月分も入力しますか？")) {
+            {% if base == 'worker' %}
+                location.href = "{{ url_for('worker', name=name, year=next_y, month=next_m) }}";
+            {% else %}
+                location.href = "{{ url_for('index', year=next_y, month=next_m) }}";
+            {% endif %}
+        } else {
+            location.href = "{{ url_for('menu') }}";
+        }
+    } else if (params.get('submitted') === 'true') {
+        alert("送信完了しました");
+        location.href = "{{ url_for('menu') }}";
+    }
+</script>
 </body>
 </html>
