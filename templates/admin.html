@@ -26,8 +26,7 @@
                         <b style="display:block; border-bottom:1px solid #f0f0f0; margin-bottom:3px;">{{ day }}</b>
                         {% for row in rows %}
                             {% if row[0] == day and row[2] == '〇' %}
-                                <div class="shift-tag" style="background:{{ row[3] }}; {% if row[4] %}cursor:pointer; font-weight:bold;{% endif %}"
-                                     {% if row[4] %} onclick="alert('【{{ row[1] }}さんの備考】\n{{ row[4] }}')" {% endif %}>
+                                <div class="shift-tag" style="background:{{ row[3] }}; cursor:pointer;" onclick="alert('【{{ row[1] }}さんの備考】\n{{ row[4] }}')">
                                     {% if row[4] %}☆{% endif %}{{ row[1] }}
                                 </div>
                             {% endif %}
