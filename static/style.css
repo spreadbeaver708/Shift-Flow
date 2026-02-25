@@ -2,41 +2,65 @@
     --entry: #4CAF50; --confirm: #FF9800; --manage: #673AB7; --sub: #666; --bg: #f4f4f4; 
 }
 body { font-family: sans-serif; background: var(--bg); margin: 0; padding: 5px; display: flex; justify-content: center; }
-.container { width: 100%; max-width: 950px; background: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); box-sizing: border-box; }
-h1 { font-size: 1.3rem; text-align: center; color: #333; margin-bottom: 20px; }
+.container { 
+    width: 100%; max-width: 950px; background: #fff; padding: 20px; 
+    border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); box-sizing: border-box; 
+}
 
-/* 3Dボタン共通設定 */
-.btn-back { display: block; width: 100%; max-width: 280px; margin: 0 auto 15px; padding: 12px; background: var(--sub); color: white; text-align: center; text-decoration: none; font-weight: bold; border-radius: 10px; border-bottom: 4px solid #444; }
-.menu-btn { display: block; width: 280px; margin: 15px auto; padding: 18px; text-align: center; text-decoration: none; font-weight: bold; border-radius: 10px; border: 2px solid rgba(0,0,0,0.1); color: white; transition: 0.1s; cursor: pointer; }
-.btn-entry { background: var(--entry); border-bottom: 4px solid #388E3C; }
-.btn-confirm { background: var(--confirm); border-bottom: 4px solid #E68A00; }
-.btn-manage { background: var(--manage); border-bottom: 4px solid #512DA8; }
+/* 3Dボタン装飾 */
+.menu-btn { display: block; width: 280px; margin: 15px auto; padding: 18px; text-align: center; text-decoration: none; font-weight: bold; border-radius: 10px; border: 1px solid rgba(0,0,0,0.1); color: white; border-bottom: 4px solid rgba(0,0,0,0.3); transition: 0.1s; cursor: pointer; }
+.btn-entry { background: var(--entry); border-bottom-color: #388E3C; }
+.btn-confirm { background: var(--confirm); border-bottom-color: #E68A00; }
+.btn-manage { background: var(--manage); border-bottom-color: #512DA8; }
 .menu-btn:active { transform: translateY(2px); border-bottom-width: 2px; }
+.btn-back { display: block; width: 100%; max-width: 280px; margin: 0 auto 20px; padding: 12px; background: var(--sub); color: white; text-align: center; text-decoration: none; font-weight: bold; border-radius: 10px; border-bottom: 4px solid #444; }
 
-.btn-month { display: inline-block; padding: 12px 15px; border-radius: 10px; text-decoration: none; font-weight: bold; color: white; border-bottom: 4px solid rgba(0,0,0,0.2); }
-.active-month { border: 3px solid #000 !important; box-shadow: 0 0 8px rgba(0,0,0,0.3); transform: scale(1.05); }
+/* 月切り替えボタン（3D） */
+.btn-month { display: inline-block; padding: 10px 15px; border-radius: 10px; text-decoration: none; font-weight: bold; color: white; border-bottom: 4px solid rgba(0,0,0,0.2); }
+.active-month { border: 2px solid #000 !important; transform: scale(1.05); }
 
-/* カレンダーと〇×ボタン */
+/* カレンダー配置：日付は「上」、ボタンは「左右中央」 */
 .calendar-table { width: 100%; table-layout: fixed; border-collapse: collapse; margin-top: 5px; }
-.calendar-table th, .calendar-table td { border: 1px solid #ddd; text-align: center; vertical-align: top; padding: 2px; }
-.calendar-table th { background: #eee; padding: 8px 0; font-size: 0.8rem; }
+.calendar-table td { border: 1px solid #ddd; vertical-align: top; text-align: center; background: #fff; }
+.has-remark-bg { background-color: #fffde7 !important; border: 1px solid #ffe082 !important; }
 
-/* ★44pxに微調整した〇×ボタン */
+/* ★〇×ボタン：スマホで「縦並び」にして画面内に収める */
 @media (max-width: 767px) {
-    .calendar-table td { height: 110px; }
-    .radio-label { width: 44px; height: 44px; line-height: 44px; font-size: 1.2rem; margin: 4px 1px; }
+    .calendar-table td { height: 135px; padding: 2px; } /* 縦並び用に高さを確保 */
+    .radio-label { 
+        width: 40px; height: 40px; line-height: 40px; 
+        display: block;    /* ★縦に並べる */
+        margin: 5px auto;  /* ★中央に寄せる */
+        text-align: center; font-size: 1.1rem; padding: 0;
+        border: 2px solid #ccc; border-radius: 50%; background: #fff; cursor: pointer;
+    }
 }
 @media (min-width: 768px) {
-    .calendar-table td { height: 140px; }
-    .radio-label { width: 48px; height: 48px; line-height: 48px; font-size: 1.3rem; margin: 6px; }
+    .calendar-table td { height: 140px; padding: 5px; }
+    .radio-label { 
+        width: 46px; height: 46px; line-height: 46px; 
+        display: inline-block; /* PCでは横並び */
+        margin: 6px; text-align: center; font-size: 1.2rem;
+        border: 2px solid #ccc; border-radius: 50%; background: #fff; cursor: pointer;
+    }
 }
-
-input[type="radio"] { display: none; }
-.radio-label { display: inline-block; border: 2px solid #ccc; border-radius: 50%; cursor: pointer; background: #fff; transition: 0.1s; }
 input[type="radio"]:checked + .radio-label { background: var(--entry); color: white; border-color: var(--entry); }
+input[type="radio"] { display: none; }
 
+/* 備考ボタン：大きく押しやすく */
+.btn-remark-open { 
+    display: block; width: 94%; margin: 5px auto; padding: 8px 0; 
+    font-size: 0.8rem; border: 1px solid #ccc; border-radius: 6px; 
+    background: #f9f9f9; font-weight: bold; color: #666; cursor: pointer; 
+}
+.btn-remark-open.active { background: #fbc02d; color: #000; border-color: #f9a825; }
+
+/* 備考モーダル */
+.modal-overlay { display: none; position: fixed; z-index: 1000; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); }
+.modal-content { background: #fff; width: 85%; max-width: 350px; margin: 25% auto; padding: 20px; border-radius: 15px; text-align: center; }
+.modal-textarea { width: 100%; height: 160px; padding: 12px; font-size: 16px; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; margin-bottom: 15px; }
+
+/* 保存ボタンと通知 */
 .btn-save-colored { background: var(--entry); color: white; width: 100%; padding: 18px; margin-top: 15px; border-radius: 10px; border: none; border-bottom: 5px solid #388E3C; font-weight: bold; font-size: 1.1rem; cursor: pointer; }
-input[type="text"], input[type="password"], select { width: 100%; padding: 12px; margin: 8px 0; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; font-size: 16px; }
-.error { color: #FF0000; font-weight: bold; background: #FFF0F0; border: 1px solid #FFCCCC; padding: 10px; border-radius: 5px; margin-bottom: 15px; text-align: center; }
-.remark-input { width: 96%; font-size: 0.7rem; border: 1px solid #ddd; padding: 3px; border-radius: 4px; }
-.shift-tag { display: block; margin-bottom: 2px; border-radius: 4px; padding: 4px 2px; font-size: 0.7rem; font-weight: bold; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.error { color: #FF0000; font-weight: bold; background: #FFF0F0; border: 2px solid #FF0000; padding: 12px; border-radius: 8px; margin-bottom: 15px; text-align: center; }
+input[type="text"], input[type="password"] { width: 100%; padding: 12px; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; font-size: 16px; }
