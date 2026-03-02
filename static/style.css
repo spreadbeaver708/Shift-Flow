@@ -24,24 +24,25 @@ body { font-family: sans-serif; background: var(--bg); margin: 0; padding: 5px; 
 .calendar-table td { border: 1px solid #ddd; vertical-align: top; text-align: center; background: #fff; }
 .has-remark-bg { background-color: #fffde7 !important; border: 1px solid #ffe082 !important; }
 
-/* ★〇×ボタン：スマホで「縦並び」にして画面内に収める */
+/* ★〇×ボタン：スマホで横並びになるようにサイズと形を調整 */
 @media (max-width: 767px) {
-    .calendar-table td { height: 135px; padding: 2px; } /* 縦並び用に高さを確保 */
+    .calendar-table td { height: 110px; padding: 1px; } /* 高さ調整 */
     .radio-label { 
-        width: 40px; height: 40px; line-height: 40px; 
-        display: block;    /* ★縦に並べる */
-        margin: 5px auto;  /* ★中央に寄せる */
-        text-align: center; font-size: 1.1rem; padding: 0;
-        border: 2px solid #ccc; border-radius: 50%; background: #fff; cursor: pointer;
+        height: 28px; line-height: 24px; 
+        display: flex; justify-content: center; align-items: center;
+        margin: 0; padding: 0;
+        text-align: center; font-size: 0.85rem;
+        border: 2px solid #ccc; border-radius: 4px; background: #fff; cursor: pointer;
     }
 }
 @media (min-width: 768px) {
-    .calendar-table td { height: 140px; padding: 5px; }
+    .calendar-table td { height: 130px; padding: 4px; }
     .radio-label { 
-        width: 46px; height: 46px; line-height: 46px; 
-        display: inline-block; /* PCでは横並び */
-        margin: 6px; text-align: center; font-size: 1.2rem;
-        border: 2px solid #ccc; border-radius: 50%; background: #fff; cursor: pointer;
+        height: 36px; line-height: 32px; 
+        display: flex; justify-content: center; align-items: center;
+        margin: 0; padding: 0;
+        text-align: center; font-size: 1.1rem;
+        border: 2px solid #ccc; border-radius: 6px; background: #fff; cursor: pointer;
     }
 }
 input[type="radio"]:checked + .radio-label { background: var(--entry); color: white; border-color: var(--entry); }

@@ -1,90 +1,119 @@
 <!DOCTYPE html>
 <html lang="ja">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <title>シフト提出</title>
 </head>
-<body>
-<div class="container">
-    <h1>{{ name }} のシフト提出</h1>
-    <a href="{{ url_for('menu') }}" class="btn-back">← メニューに戻る</a>
 
-    <div style="display: flex; gap: 8px; margin-bottom: 20px; justify-content: center;">
-        <a href="{{ url_for('worker', name=name, year=now_y, month=now_m) }}" 
-           class="btn-month {% if year==now_y and month==now_m %}active-month{% endif %}" 
-           style="background: var(--entry); border-bottom-color: #388E3C;">今月 ({{ now_m }}月)</a>
-        <a href="{{ url_for('worker', name=name, year=next_y, month=next_m) }}" 
-           class="btn-month {% if year==next_y and month==next_m %}active-month{% endif %}" 
-           style="background: var(--confirm); border-bottom-color: #E68A00;">翌月 ({{ next_m }}月)</a>
+<body>
+    <div class="container">
+        <h1>{{ name }} のシフト提出</h1>
+        <a href="{{ url_for('menu') }}" class="btn-back">← メニューに戻る</a>
+
+        <div style="display: flex; gap: 8px; margin-bottom: 20px; justify-content: center;">
+            <a href="{{ url_for('worker', name=name, year=now_y, month=now_m) }}"
+                class="btn-month {% if year==now_y and month==now_m %}active-month{% endif %}"
+                style="background: var(--entry); border-bottom-color: #388E3C;">今月 ({{ now_m }}月)</a>
+            <a href="{{ url_for('worker', name=name, year=next_y, month=next_m) }}"
+                class="btn-month {% if year==next_y and month==next_m %}active-month{% endif %}"
+                style="background: var(--confirm); border-bottom-color: #E68A00;">翌月 ({{ next_m }}月)</a>
+        </div>
+
+        <form method="post">
+            <table class="calendar-table">
+                <tr>
+                    <th>日</th>
+                    <th>月</th>
+                    <th>火</th>
+                    <th>水</th>
+                    <th>木</th>
+                    <th>金</th>
+                    <th>土</th>
+                </tr>
+                {% for week in cal %}
+                <tr>
+                    {% for day in week %}
+                    {% set i = loop.index0 %}
+                    {% set s = shifts.get(day, {'status':'〇', 'remark':''}) %}
+                    <td id="cell_{{day}}" class="{% if day != 0 and s.remark %}has-remark-bg{% endif %}">
+                        {% if day != 0 %}
+                        <div
+                            style="font-size:0.75rem; color:#999; padding:2px; border-bottom:1px solid #f9f9f9; margin-bottom:5px;">
+                            {{ day }}</div>
+                        {% if i in [0, 1, 4] %}
+                        <div style="display: flex; flex-direction: column; width: 100%; gap: 5px;">
+                            <div style="display: flex; flex-direction: row; width: 100%; gap: 4px;">
+                                <input type="radio" id="ok_{{day}}" name="day_{{day}}" value="〇" {% if s.status=='〇'
+                                    %}checked{% endif %} style="display: none;">
+                                <label for="ok_{{day}}" class="radio-label"
+                                    style="flex: 1; min-width: 0; height: 36px; line-height: 36px; border-radius: 6px; margin: 0; padding: 0; text-align: center; box-sizing: border-box;">〇</label>
+
+                                <input type="radio" id="ng_{{day}}" name="day_{{day}}" value="×" {% if s.status=='×'
+                                    %}checked{% endif %} style="display: none;">
+                                <label for="ng_{{day}}" class="radio-label"
+                                    style="flex: 1; min-width: 0; height: 36px; line-height: 36px; border-radius: 6px; margin: 0; padding: 0; text-align: center; box-sizing: border-box;">×</label>
+                            </div>
+                            <button type="button" id="btn_remark_{{day}}"
+                                class="btn-remark-open {% if s.remark %}active{% endif %}"
+                                onclick="openRemarkModal('{{day}}')"
+                                style="width: 100%; margin: 0; box-sizing: border-box;">
+                                {{ '★備考あり' if s.remark else '備考' }}
+                            </button>
+                            <input type="hidden" name="remark_{{day}}" id="input_remark_{{day}}" value="{{ s.remark }}">
+                        </div>
+                        {% else %}<div style="color:#eee; margin-top:25px;">-</div>{% endif %}
+                        {% endif %}
+                    </td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </table>
+            <button type="submit" class="btn-save-colored">この内容で保存する</button>
+        </form>
     </div>
 
-    <form method="post">
-        <table class="calendar-table">
-            <tr><th>日</th><th>月</th><th>火</th><th>水</th><th>木</th><th>金</th><th>土</th></tr>
-            {% for week in cal %}
-            <tr>
-                {% for day in week %}
-                {% set i = loop.index0 %}
-                {% set s = shifts.get(day, {'status':'〇', 'remark':''}) %}
-                <td id="cell_{{day}}" class="{% if day != 0 and s.remark %}has-remark-bg{% endif %}">
-                    {% if day != 0 %}
-                        <div style="font-size:0.75rem; color:#999; padding:2px; border-bottom:1px solid #f9f9f9; margin-bottom:5px;">{{ day }}</div>
-                        {% if i in [0, 1, 4] %}
-                            <div style="display: inline-block;">
-                                <input type="radio" id="ok_{{day}}" name="day_{{day}}" value="〇" {% if s.status == '〇' %}checked{% endif %}>
-                                <label for="ok_{{day}}" class="radio-label">〇</label>
-                                <input type="radio" id="ng_{{day}}" name="day_{{day}}" value="×" {% if s.status == '×' %}checked{% endif %}>
-                                <label for="ng_{{day}}" class="radio-label">×</label>
-                                <button type="button" id="btn_remark_{{day}}" class="btn-remark-open {% if s.remark %}active{% endif %}" onclick="openRemarkModal('{{day}}')">
-                                    {{ '★備考あり' if s.remark else '備考' }}
-                                </button>
-                                <input type="hidden" name="remark_{{day}}" id="input_remark_{{day}}" value="{{ s.remark }}">
-                            </div>
-                        {% else %}<div style="color:#eee; margin-top:25px;">-</div>{% endif %}
-                    {% endif %}
-                </td>
-                {% endfor %}
-            </tr>
-            {% endfor %}
-        </table>
-        <button type="submit" class="btn-save-colored">この内容で保存する</button>
-    </form>
-</div>
+    <div id="remarkModal" class="modal-overlay">
+        <div class="modal-content">
+            <h3 id="modalTitle"></h3><textarea id="modalTextarea" class="modal-textarea"></textarea><button
+                type="button" class="menu-btn btn-entry" style="width: 100%; border:none;"
+                onclick="saveRemark()">OK</button>
+        </div>
+    </div>
 
-<div id="remarkModal" class="modal-overlay"><div class="modal-content"><h3 id="modalTitle"></h3><textarea id="modalTextarea" class="modal-textarea"></textarea><button type="button" class="menu-btn btn-entry" style="width: 100%; border:none;" onclick="saveRemark()">OK</button></div></div>
-
-<script>
-    let currentDay = null;
-    function openRemarkModal(day) {
-        currentDay = day;
-        document.getElementById('modalTitle').innerText = day + "日の備考";
-        document.getElementById('modalTextarea').value = document.getElementById('input_remark_'+day).value;
-        document.getElementById('remarkModal').style.display = 'block';
-    }
-    function saveRemark() {
-        const val = document.getElementById('modalTextarea').value;
-        document.getElementById('input_remark_'+currentDay).value = val;
-        const btn = document.getElementById('btn_remark_'+currentDay);
-        const cell = document.getElementById('cell_'+currentDay);
-        if (val.trim() !== "") { btn.classList.add('active'); btn.innerText = "★備考あり"; cell.classList.add('has-remark-bg'); }
-        else { btn.classList.remove('active'); btn.innerText = "備考"; cell.classList.remove('has-remark-bg'); }
-        document.getElementById('remarkModal').style.display = 'none';
-    }
-
-    /* ★修正箇所：送信後の確認ポップアップ */
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('submitted') === 'true') {
-        // メッセージを指示通りの内容に変更し、alert("送信完了しました") を完全に削除
-        if (confirm("送信されました。このまま翌月分も提出しますか？")) {
-            // 「はい」：翌月の入力画面へ
-            location.href = "{{ url_for('worker', name=name, year=next_y, month=next_m) }}";
-        } else {
-            // 「いいえ」：メニュー画面へ
-            location.href = "{{ url_for('menu') }}";
+    <script>
+        let currentDay = null;
+        function openRemarkModal(day) {
+            currentDay = day;
+            document.getElementById('modalTitle').innerText = day + "日の備考";
+            document.getElementById('modalTextarea').value = document.getElementById('input_remark_' + day).value;
+            document.getElementById('remarkModal').style.display = 'block';
         }
-    }
-</script>
+        function saveRemark() {
+            const val = document.getElementById('modalTextarea').value;
+            document.getElementById('input_remark_' + currentDay).value = val;
+            const btn = document.getElementById('btn_remark_' + currentDay);
+            const cell = document.getElementById('cell_' + currentDay);
+            if (val.trim() !== "") { btn.classList.add('active'); btn.innerText = "★備考あり"; cell.classList.add('has-remark-bg'); }
+            else { btn.classList.remove('active'); btn.innerText = "備考"; cell.classList.remove('has-remark-bg'); }
+            document.getElementById('remarkModal').style.display = 'none';
+        }
+
+        /* ★修正箇所：送信後の確認ポップアップ */
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('submitted') === 'true') {
+            // メッセージを指示通りの内容に変更し、alert("送信完了しました") を完全に削除
+            if (confirm("送信されました。このまま翌月分も提出しますか？")) {
+                // 「はい」：翌月の入力画面へ
+                location.href = "{{ url_for('worker', name=name, year=next_y, month=next_m) }}";
+            } else {
+                // 「いいえ」：メニュー画面へ
+                location.href = "{{ url_for('menu') }}";
+            }
+        }
+    </script>
 </body>
+
 </html>
