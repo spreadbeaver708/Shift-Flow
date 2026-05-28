@@ -16,6 +16,7 @@
 | `SHIFT_DB_PATH` | **本番では絶対パス必須**（相対パスを指定すると起動失敗） | `shift.db` の置き場（未指定なら `instance/shift.db`） |
 | `ADMIN_INIT_PASSWORD` | 初回起動時のみ参照 | `admin` ユーザーの初期パスワード（未設定ならランダム生成しログに一度だけ表示） |
 | `RATELIMIT_STORAGE_URI` | 推奨（複数 worker 運用時） | レート制限の保管先（例: `redis://localhost:6379/0`）。未設定時は `memory://`、worker ごとに別カウンタになる。`redis://` を指定する場合は別途 `pip install redis` が必要 |
+| `TRUSTED_PROXY_HOPS` | **リバプロ配下では必須** | 信頼するリバースプロキシ段数（既定 `0`）。Caddy/Nginx 経由なら `1`。指定するとアプリは `X-Forwarded-For` から実 IP を取得し、`/login` レート制限が利用者ごとに効くようになる。**直接公開（プロキシ無し）の場合は 0 のまま**（X-Forwarded-* を信頼するとIP偽装可能になるため）。**非負整数以外（`abc`、空文字、`-1` 等）は起動時に明示エラーで停止**（設定ミスを気づかずに動かさないため） |
 
 `SECRET_KEY` は十分長いランダム文字列を使う：
 
@@ -59,6 +60,16 @@ export ADMIN_INIT_PASSWORD="（初回のみ・十分長いランダム値）"
 ```bash
 gunicorn -w 1 -b 127.0.0.1:8000 app:app
 ```
+
+**リバースプロキシ（Caddy/Nginx）経由で公開する場合は `TRUSTED_PROXY_HOPS=1` を必ず設定する**：
+
+```bash
+export TRUSTED_PROXY_HOPS=1
+```
+
+未設定だと `request.remote_addr` がプロキシの `127.0.0.1` 等になり、
+`/login` のレート制限（10回/分）が **全ユーザーで共有**されてしまう（誰か1人の連続失敗で全員 429）。
+直接公開（プロキシ無し）の場合は **必ず 0 のまま**にする（`X-Forwarded-For` を信頼すると IP 偽装可能）。
 
 複数 worker で運用する場合は **レート制限のための共有ストレージを指定**（推奨）：
 
@@ -109,13 +120,78 @@ CODE_REVIEW.md §8 を上から順に実機確認すること。最低限：
 
 ## バックアップ
 
-`SHIFT_DB_PATH` で指定したファイルを日次でコピーする。例：
+本アプリは `journal_mode=WAL` を有効にしている（同時書き込みの堅牢化のため）。
+WAL モードでは稼働中、未チェックポイントの書き込みが `shift.db-wal` に残ったまま
+本体 `shift.db` に反映されていないことがあるため、**稼働中に `cp shift.db` で単体コピーすると
+直近の更新が抜けた不整合バックアップになる可能性がある**。
+
+### 推奨: `sqlite3 .backup` でオンラインバックアップ
+
+稼働中でもロック無しで、WAL の未反映分も含めて整合性のある単一ファイルを生成できる：
 
 ```bash
-cp /var/lib/shift-flow/shift.db /var/backups/shift-flow/shift-$(date +%F).db
+# sqlite3 CLI が必要（debian/ubuntu: sudo apt install sqlite3）
+sqlite3 /var/lib/shift-flow/shift.db \
+    ".backup '/var/backups/shift-flow/shift-$(date +%F).db'"
 ```
 
-復元時はサービス停止 → ファイル差し替え → サービス起動。
+- 出力は単一ファイル（`-wal` / `-shm` の sidecar は不要）。
+- cron で日次実行すれば良い。
+- バックアップディレクトリの世代管理（古い分の削除）は別途。
+
+### 代替: サービス停止後にコピー
+
+```bash
+# 1) サービス停止
+sudo systemctl stop shift-flow
+
+# 2) WAL を本体に畳んでから（任意）3点セットいずれかをコピー
+sqlite3 /var/lib/shift-flow/shift.db "PRAGMA wal_checkpoint(TRUNCATE);"
+cp /var/lib/shift-flow/shift.db /var/backups/shift-flow/shift-$(date +%F).db
+
+# 3) サービス再開
+sudo systemctl start shift-flow
+```
+
+> ⚠️ `cp` 単体運用にする場合は、`.db` だけでなく `.db-wal` / `.db-shm` の3点セットを
+> 同時にコピーしないと整合性が崩れる。混乱を避けるため、**稼働中バックアップは
+> `sqlite3 .backup` を使う運用に統一すること**。
+
+### 復元
+
+サービス停止 → バックアップファイルを `SHIFT_DB_PATH` に配置（既存の `.db-wal` / `.db-shm`
+は事前に削除）→ サービス起動。
+
+### 旧バージョン（Phase 1 以前）の DB を引き継ぐ場合
+
+Phase 1 以前は **パスワードを DB に平文保存**していた。その DB をそのまま使うと、
+ハッシュ化判定（`check_password_hash`）でログインできない上に、`INSERT OR IGNORE` 化に
+よって初期 admin 行が上書きされず `ADMIN_INIT_PASSWORD` も効かない。
+
+**移行手順（試用開始前に1度だけ実施）**:
+
+```bash
+# 1) 旧 DB をバックアップ
+cp shift.db shift.db.legacy.backup
+
+# 2) admin 行を削除（次回起動時に新規ハッシュで作り直す）
+sqlite3 shift.db "DELETE FROM users WHERE username='admin';"
+
+# 3) 他の旧職員アカウントも一旦リセットしたい場合は users テーブルを空にする
+#    （データを残したまま個別にハッシュ化することはできない）
+#    sqlite3 shift.db "DELETE FROM users;"
+#    sqlite3 shift.db "DELETE FROM shifts;"
+
+# 4) ADMIN_INIT_PASSWORD を指定して起動 → admin がハッシュ化された新 PW で再作成される
+export ADMIN_INIT_PASSWORD=（十分長いランダム値）
+# あとは通常の起動手順に従う
+
+# 5) 起動後、admin で /manage_users を開いて職員アカウントを個別に再登録（パスワードはハッシュ化される）
+```
+
+> 既存職員のシフトデータ（`shifts`）は表示名連動なので、ユーザー再登録時に **旧と同じ表示名** を
+> 使えばシフト履歴は紐づいたまま見える。表示名重複検査が入ったため、同名が複数いる場合は
+> 試用前に表示名の整理が必要。
 
 ---
 
