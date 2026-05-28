@@ -14,6 +14,7 @@ from flask import (
 from flask_wtf import CSRFProtect
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import generate_password_hash, check_password_hash
 
 # =====================
@@ -23,6 +24,28 @@ app = Flask(__name__)
 
 APP_ENV = os.environ.get("APP_ENV", "development")
 IS_PROD = APP_ENV == "production"
+
+# Codex(後追加)#4: リバプロ配下では request.remote_addr がプロキシ IP（127.0.0.1 等）になり、
+# レート制限が全ユーザーで共有されてしまう。TRUSTED_PROXY_HOPS で信頼するプロキシ段数を
+# 明示した時のみ ProxyFix を適用し、X-Forwarded-For 等から実 IP を取り出す。
+# 直接公開（プロキシ無し）の場合は 0 のまま（X-Forwarded-* を信頼するとIP偽装可能なため）。
+#
+# Codex(再指摘)#4: 不正値（abc / 空文字 / 負数）は ValueError のまま放置せず、
+# 明示メッセージ付き RuntimeError で fail-fast する。
+# 「安全に 0 倒し」だとリバプロ配下で気づかずレート制限共有のまま動く事故源になるため、
+# 設定ミスを早期に検出する fail-fast を選択。
+_hops_raw = os.environ.get("TRUSTED_PROXY_HOPS", "0").strip()
+try:
+    TRUSTED_PROXY_HOPS = int(_hops_raw)
+except ValueError:
+    raise RuntimeError(
+        f"TRUSTED_PROXY_HOPS は非負整数で指定してください（現在: {_hops_raw!r}）。"
+        " 既定 0、Caddy/Nginx 経由なら 1。"
+    )
+if TRUSTED_PROXY_HOPS < 0:
+    raise RuntimeError(
+        f"TRUSTED_PROXY_HOPS は 0 以上で指定してください（現在: {TRUSTED_PROXY_HOPS}）"
+    )
 
 # B: SECRET_KEY は本番では必須（fail-fast）。開発ではランダムフォールバック。
 SECRET_KEY = os.environ.get("SECRET_KEY")
@@ -39,6 +62,15 @@ app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
 )
+
+# Codex(後追加)#4: ProxyFix を信頼段数分だけ適用（既定 0 では適用しない）
+if TRUSTED_PROXY_HOPS > 0:
+    app.wsgi_app = ProxyFix(
+        app.wsgi_app,
+        x_for=TRUSTED_PROXY_HOPS,
+        x_proto=TRUSTED_PROXY_HOPS,
+        x_host=TRUSTED_PROXY_HOPS,
+    )
 
 # D: CSRF
 csrf = CSRFProtect(app)
@@ -72,8 +104,16 @@ calendar.setfirstweekday(calendar.SUNDAY)
 
 
 def get_db():
-    # R の最小限のみフェーズ1で実施（timeout）。WAL/PRAGMAはフェーズ2で本格対応。
+    # R: SQLite 同時書き込み堅牢化（フェーズ2 本格対応）
+    #   - timeout=30:          ロック待ち（既定 5 秒 → 30 秒）。
+    #   - journal_mode=WAL:    読み書きの並行性を上げる。スマホ同時提出での「database is locked」予防。
+    #   - synchronous=NORMAL:  WAL での既定。性能と耐久性のバランス。
+    #   - foreign_keys=ON:     将来の FK 制約（フェーズ3 で user_id 化する際に効く）。
+    #   journal_mode は DB ファイル単位で永続化される PRAGMA だが、毎回適用しても害はない。
     conn = sqlite3.connect(DB_PATH, timeout=30)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA foreign_keys=ON")
     return conn
 
 
@@ -128,6 +168,9 @@ print(f"[init] DB_PATH={DB_PATH}")
 # =====================
 HEX_COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
 USERNAME_RE = re.compile(r"^[A-Za-z0-9_.@-]{1,32}$")
+# Codex(後追加)#3: 表示名は URL パス（/worker/<name>）に入るため URL 予約文字を禁止する。
+# 加えて HTML / 制御文字面で問題になりがちな文字も弾く。
+NAME_FORBIDDEN_RE = re.compile(r"[/\\?#&<>\r\n\t\x00]")
 REMARK_MAX_LEN = 500
 
 
@@ -323,7 +366,12 @@ def manage_users():
                     r = request.form.get("role")
                     col = request.form.get("color") or "#e8f5e9"
                     existing = conn.execute(
-                        "SELECT name FROM users WHERE username=?", (u,)
+                        "SELECT name, role FROM users WHERE username=?", (u,)
+                    ).fetchone()
+                    # Codex(後追加)#2: 表示名の重複検査（同 username なら自分自身なので除外）
+                    dup = conn.execute(
+                        "SELECT username FROM users WHERE name=? AND username != ?",
+                        (n, u),
                     ).fetchone()
                     # Codex#1: すべての検証を先に通し、検証通過後にだけ DB を更新する
                     # （検証失敗時に shifts.name だけ先に変わって users と不整合になる事故を防ぐ）
@@ -333,10 +381,29 @@ def manage_users():
                         flash("色コードの形式が不正です（#RRGGBB）")
                     elif not n or len(n) > 32:
                         flash("お名前は1〜32文字で入力してください")
+                    elif NAME_FORBIDDEN_RE.search(n):
+                        # Codex(後追加)#3: 表示名は URL パスに入るため / 等を禁止
+                        flash("お名前に使えない文字（/ \\ ? # & < > 改行 等）が含まれています")
+                    elif dup:
+                        flash(f"同じ表示名のユーザー（ID: {dup[0]}）が既に存在します")
                     elif existing and p and not is_valid_password(p):
                         flash("パスワードは4文字以上の英数字で入力してください")
                     elif not existing and not is_valid_password(p):
                         flash("パスワードは4文字以上の英数字で入力してください")
+                    elif existing and existing[1] != r and u == g.user.username:
+                        # Codex(後追加)#1: 自分自身の権限変更を禁止（自己降格による締め出し防止）
+                        flash("自分自身の権限は変更できません")
+                    elif (
+                        existing
+                        and existing[1] == "admin"
+                        and r == "worker"
+                        and conn.execute(
+                            "SELECT COUNT(*) FROM users WHERE role='admin' AND is_active=1"
+                        ).fetchone()[0]
+                        <= 1
+                    ):
+                        # Codex(後追加)#1: 最後の有効な管理者は降格できない
+                        flash("有効な管理者が最低1人残るよう、最後の管理者を降格することはできません")
                     else:
                         if existing:
                             # 表示名変更時はシフト名も連動（J の根本対応はフェーズ3）
@@ -372,19 +439,52 @@ def manage_users():
                         s = int(request.form.get("current_status", ""))
                     except ValueError:
                         s = -1
-                    if u != "admin" and s in (0, 1):
-                        conn.execute(
-                            "UPDATE users SET is_active=? WHERE username=?",
-                            (0 if s == 1 else 1, u),
-                        )
+                    # Codex(後追加)#1: 自分自身の停止禁止 + 最後の有効 admin の停止禁止
+                    if u == g.user.username:
+                        flash("自分自身を停止することはできません")
+                    elif u == "admin":
+                        # 既存の固定保護（初期 admin 行）を維持
+                        pass
+                    elif s in (0, 1):
+                        allow = True
+                        if s == 1:  # 1 → 0（停止に向かう）
+                            target = conn.execute(
+                                "SELECT role FROM users WHERE username=?", (u,)
+                            ).fetchone()
+                            if target and target[0] == "admin":
+                                admin_count = conn.execute(
+                                    "SELECT COUNT(*) FROM users WHERE role='admin' AND is_active=1"
+                                ).fetchone()[0]
+                                if admin_count <= 1:
+                                    flash("最後の有効な管理者を停止することはできません")
+                                    allow = False
+                        if allow:
+                            conn.execute(
+                                "UPDATE users SET is_active=? WHERE username=?",
+                                (0 if s == 1 else 1, u),
+                            )
                 elif action == "delete":
-                    if u != "admin":
-                        user_res = conn.execute(
-                            "SELECT name FROM users WHERE username=?", (u,)
+                    # Codex(後追加)#1: 自分自身の削除禁止 + 最後の有効 admin の削除禁止
+                    if u == g.user.username:
+                        flash("自分自身を削除することはできません")
+                    elif u == "admin":
+                        # 既存の固定保護を維持
+                        pass
+                    else:
+                        target = conn.execute(
+                            "SELECT name, role, is_active FROM users WHERE username=?", (u,)
                         ).fetchone()
-                        if user_res:
-                            conn.execute("DELETE FROM shifts WHERE name=?", (user_res[0],))
-                        conn.execute("DELETE FROM users WHERE username=?", (u,))
+                        allow = True
+                        if target and target[1] == "admin" and target[2] == 1:
+                            admin_count = conn.execute(
+                                "SELECT COUNT(*) FROM users WHERE role='admin' AND is_active=1"
+                            ).fetchone()[0]
+                            if admin_count <= 1:
+                                flash("最後の有効な管理者を削除することはできません")
+                                allow = False
+                        if allow and target:
+                            conn.execute("DELETE FROM shifts WHERE name=?", (target[0],))
+                            conn.execute("DELETE FROM users WHERE username=?", (u,))
         # A: パスワード列は読み出さない（HTMLに渡さない）
         users = conn.execute(
             "SELECT username, role, name, is_active, color FROM users"
