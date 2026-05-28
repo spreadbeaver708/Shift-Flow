@@ -1,2 +1,6 @@
 shift.db
 __pycache__/
+instance/
+.venv/
+*.pyc
+.env

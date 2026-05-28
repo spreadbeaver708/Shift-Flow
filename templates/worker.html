@@ -23,6 +23,7 @@
         </div>
 
         <form method="post">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <table class="calendar-table">
                 <tr>
                     <th>日</th>
