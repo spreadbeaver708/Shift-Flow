@@ -1,202 +1,111 @@
-# Shift-Flow（カウンセリングルーム シフト管理アプリ）
+# Shift-Flow
 
-スタッフがスマホからシフト希望を入力し、管理者が集計・調整できる Flask 製アプリ。
+スタッフがスマホからシフト希望を入力し、管理者が確認・調整できる Flask 製アプリ。
 
-- 設計・セキュリティの背景は [CODE_REVIEW.md](CODE_REVIEW.md) を参照。
-- 本書はフェーズ1（試用開始の前提）終了時点での動かし方をまとめたもの。
-
----
-
-## 必須環境変数
-
-| 変数 | 必須 | 用途 |
-|------|------|------|
-| `SECRET_KEY` | **本番では必須**（未設定だと起動失敗） | セッション署名鍵 |
-| `APP_ENV` | 本番では `production` | Cookie の Secure 属性切替、debug 起動防止 |
-| `SHIFT_DB_PATH` | **本番では絶対パス必須**（相対パスを指定すると起動失敗） | `shift.db` の置き場（未指定なら `instance/shift.db`） |
-| `ADMIN_INIT_PASSWORD` | 初回起動時のみ参照 | `admin` ユーザーの初期パスワード（未設定ならランダム生成しログに一度だけ表示） |
-| `RATELIMIT_STORAGE_URI` | 推奨（複数 worker 運用時） | レート制限の保管先（例: `redis://localhost:6379/0`）。未設定時は `memory://`、worker ごとに別カウンタになる。`redis://` を指定する場合は別途 `pip install redis` が必要 |
-| `TRUSTED_PROXY_HOPS` | **リバプロ配下では必須** | 信頼するリバースプロキシ段数（既定 `0`）。Caddy/Nginx 経由なら `1`。指定するとアプリは `X-Forwarded-For` から実 IP を取得し、`/login` レート制限が利用者ごとに効くようになる。**直接公開（プロキシ無し）の場合は 0 のまま**（X-Forwarded-* を信頼するとIP偽装可能になるため）。**非負整数以外（`abc`、空文字、`-1` 等）は起動時に明示エラーで停止**（設定ミスを気づかずに動かさないため） |
-
-`SECRET_KEY` は十分長いランダム文字列を使う：
-
-```bash
-python -c "import secrets; print(secrets.token_hex(32))"
-```
+> 設計とセキュリティ対策の経緯は [CODE_REVIEW.md](CODE_REVIEW.md) を参照。
 
 ---
 
-## ローカル開発
+## ローカルで動かす
 
 ```bash
 pip install -r requirements.txt
-flask --app app run            # debug は無効。APP_ENV 未設定で動く
-# もしくは
 python app.py
 ```
 
-- `SECRET_KEY` 未設定でも開発時はランダム生成にフォールバックする。
-- `instance/shift.db` が自動生成される。初回は `admin` のパスワードがコンソールに出力される。
+ブラウザで http://localhost:5000 を開く。
+初回起動時、`admin` の初期パスワードがコンソールに表示される（控えておくこと）。
 
 ---
 
-## 本番デプロイ（HTTPS）
+## 本番デプロイ（HTTPS 必須）
 
-**HTTPS 必須**。Cookie の `Secure` 属性は `APP_ENV=production` のときだけ有効になるため、平文 HTTP では運用しない。
-
-### 環境変数の例
+### 1. 環境変数を設定
 
 ```bash
 export APP_ENV=production
-export SECRET_KEY="（python -c "import secrets; print(secrets.token_hex(32))" の結果）"
+export SECRET_KEY=$(python -c "import secrets; print(secrets.token_hex(32))")
 export SHIFT_DB_PATH=/var/lib/shift-flow/shift.db
-export ADMIN_INIT_PASSWORD="（初回のみ・十分長いランダム値）"
+export ADMIN_INIT_PASSWORD=（長いランダム文字列）
+
+# Caddy / Nginx の後ろで動かす場合は追加
+export TRUSTED_PROXY_HOPS=1
 ```
 
-### gunicorn での起動
-
-試用初期（小規模）：
+### 2. gunicorn で起動
 
 ```bash
 gunicorn -w 1 -b 127.0.0.1:8000 app:app
 ```
 
-**リバースプロキシ（Caddy/Nginx）経由で公開する場合は `TRUSTED_PROXY_HOPS=1` を必ず設定する**：
+> `app.run` や `python app.py` での本番起動は禁止。`APP_ENV=production` で例外停止する。
+> worker を増やす場合は別途 Redis が必要（後述）。
 
-```bash
-export TRUSTED_PROXY_HOPS=1
+### 3. HTTPS で公開
+
+**Caddy の例**：
+```caddyfile
+shift.example.com {
+    reverse_proxy 127.0.0.1:8000
+}
 ```
 
-未設定だと `request.remote_addr` がプロキシの `127.0.0.1` 等になり、
-`/login` のレート制限（10回/分）が **全ユーザーで共有**されてしまう（誰か1人の連続失敗で全員 429）。
-直接公開（プロキシ無し）の場合は **必ず 0 のまま**にする（`X-Forwarded-For` を信頼すると IP 偽装可能）。
+**PaaS（Render / Railway / Fly.io）** なら自動 HTTPS が付く。
 
-複数 worker で運用する場合は **レート制限のための共有ストレージを指定**（推奨）：
+---
 
-```bash
-# Redis ストレージを使う場合は redis パッケージを別途インストール
-# （requirements.txt にはコメントアウトされた redis==5.0.8 のヒントがある）
-pip install redis==5.0.8
+## 環境変数一覧
 
-export RATELIMIT_STORAGE_URI=redis://127.0.0.1:6379/0
-gunicorn -w 2 -b 127.0.0.1:8000 app:app
-```
-
-> ⚠️ `redis://` 系を指定した状態で `redis` パッケージが入っていないと、リクエスト時に
-> `limits.errors.ConfigurationError: 'redis' prerequisite not available` で落ちます。
-> 試用初期はそのまま `memory://`（既定）＋ `-w 1` で運用するのが安全です。
-
-- `app.run(debug=True)` は **使用禁止**（CODE_REVIEW.md §3 G）。
-- `python app.py` は `APP_ENV=production` のとき例外で停止する。
-- gunicorn は `SHIFT_DB_PATH` を **絶対パス** で指定する。本番では相対パス指定で起動失敗する（CODE_REVIEW.md §3 S）。
-- 初回起動の admin 作成は `INSERT OR IGNORE` で冪等化されており、worker 数によらず1度だけ書き込まれる。ランダム初期パスワードのログ表示も書き込みに成功した worker 1 つだけが出力する。
-- レート制限の `memory://`（既定）は worker ごとに別カウンタになるため、複数 worker 運用ではレートが実質ゆるむ。`-w 1` で運用するか、`RATELIMIT_STORAGE_URI` に Redis を指定すること。
-
-### HTTPS の終端
-
-以下のいずれかで HTTPS を終端する：
-
-1. **PaaS（Render / Railway / Fly.io など）の自動 HTTPS** を利用。
-2. **Nginx / Caddy などのリバースプロキシ＋ Let's Encrypt**。
-   - Caddy 例：
-     ```caddyfile
-     shift.example.com {
-         reverse_proxy 127.0.0.1:8000
-     }
-     ```
-   - Nginx の場合は `proxy_set_header X-Forwarded-Proto https;` を必ず設定する。
-
-### 受け入れチェック（公開前）
-
-CODE_REVIEW.md §8 を上から順に実機確認すること。最低限：
-
-- `SECRET_KEY` を未設定にすると本番起動が失敗する。
-- 平文 HTTP では Cookie が送られない（Secure 属性が効いている）。
-- 職員アカウントで `/admin` `/manage_users` が 403/302 になる。
-- 停止した職員の旧セッションで `/menu` `/worker` にアクセスできない。
-- 連続ログイン失敗で 429 が返る。
+| 変数 | 既定 | 説明 |
+|------|------|------|
+| `SECRET_KEY` | （本番必須） | セッション署名鍵。未設定なら本番起動失敗 |
+| `APP_ENV` | `development` | 本番は `production` を指定 |
+| `SHIFT_DB_PATH` | `instance/shift.db` | DB ファイルの場所。**本番は絶対パス必須** |
+| `ADMIN_INIT_PASSWORD` | （ランダム生成） | 初回起動時の admin パスワード |
+| `TRUSTED_PROXY_HOPS` | `0` | リバプロ段数。Caddy/Nginx 経由なら `1`、直接公開なら `0` |
+| `RATELIMIT_STORAGE_URI` | `memory://` | worker 複数なら `redis://localhost:6379/0`（要 `pip install redis`） |
 
 ---
 
 ## バックアップ
 
-本アプリは `journal_mode=WAL` を有効にしている（同時書き込みの堅牢化のため）。
-WAL モードでは稼働中、未チェックポイントの書き込みが `shift.db-wal` に残ったまま
-本体 `shift.db` に反映されていないことがあるため、**稼働中に `cp shift.db` で単体コピーすると
-直近の更新が抜けた不整合バックアップになる可能性がある**。
-
-### 推奨: `sqlite3 .backup` でオンラインバックアップ
-
-稼働中でもロック無しで、WAL の未反映分も含めて整合性のある単一ファイルを生成できる：
+WAL モード稼働中は **必ず** `sqlite3 .backup` を使う。`cp shift.db` は壊れたバックアップになる。
 
 ```bash
-# sqlite3 CLI が必要（debian/ubuntu: sudo apt install sqlite3）
-sqlite3 /var/lib/shift-flow/shift.db \
-    ".backup '/var/backups/shift-flow/shift-$(date +%F).db'"
+sqlite3 /var/lib/shift-flow/shift.db ".backup '/path/to/backup-$(date +%F).db'"
 ```
 
-- 出力は単一ファイル（`-wal` / `-shm` の sidecar は不要）。
-- cron で日次実行すれば良い。
-- バックアップディレクトリの世代管理（古い分の削除）は別途。
-
-### 代替: サービス停止後にコピー
-
-```bash
-# 1) サービス停止
-sudo systemctl stop shift-flow
-
-# 2) WAL を本体に畳んでから（任意）3点セットいずれかをコピー
-sqlite3 /var/lib/shift-flow/shift.db "PRAGMA wal_checkpoint(TRUNCATE);"
-cp /var/lib/shift-flow/shift.db /var/backups/shift-flow/shift-$(date +%F).db
-
-# 3) サービス再開
-sudo systemctl start shift-flow
-```
-
-> ⚠️ `cp` 単体運用にする場合は、`.db` だけでなく `.db-wal` / `.db-shm` の3点セットを
-> 同時にコピーしないと整合性が崩れる。混乱を避けるため、**稼働中バックアップは
-> `sqlite3 .backup` を使う運用に統一すること**。
+cron で日次実行を推奨。
 
 ### 復元
 
-サービス停止 → バックアップファイルを `SHIFT_DB_PATH` に配置（既存の `.db-wal` / `.db-shm`
-は事前に削除）→ サービス起動。
+サービス停止 → 既存の `shift.db` / `shift.db-wal` / `shift.db-shm` を削除 → バックアップを `SHIFT_DB_PATH` の位置に配置 → サービス起動。
 
-### 旧バージョン（Phase 1 以前）の DB を引き継ぐ場合
+---
 
-Phase 1 以前は **パスワードを DB に平文保存**していた。その DB をそのまま使うと、
-ハッシュ化判定（`check_password_hash`）でログインできない上に、`INSERT OR IGNORE` 化に
-よって初期 admin 行が上書きされず `ADMIN_INIT_PASSWORD` も効かない。
+## 旧 DB（Phase 1 以前）から移行
 
-**移行手順（試用開始前に1度だけ実施）**:
+平文パスワードが残った旧 DB はそのままだとログイン不能。一度 admin を作り直す：
 
 ```bash
-# 1) 旧 DB をバックアップ
 cp shift.db shift.db.legacy.backup
-
-# 2) admin 行を削除（次回起動時に新規ハッシュで作り直す）
 sqlite3 shift.db "DELETE FROM users WHERE username='admin';"
 
-# 3) 他の旧職員アカウントも一旦リセットしたい場合は users テーブルを空にする
-#    （データを残したまま個別にハッシュ化することはできない）
-#    sqlite3 shift.db "DELETE FROM users;"
-#    sqlite3 shift.db "DELETE FROM shifts;"
-
-# 4) ADMIN_INIT_PASSWORD を指定して起動 → admin がハッシュ化された新 PW で再作成される
-export ADMIN_INIT_PASSWORD=（十分長いランダム値）
-# あとは通常の起動手順に従う
-
-# 5) 起動後、admin で /manage_users を開いて職員アカウントを個別に再登録（パスワードはハッシュ化される）
+export ADMIN_INIT_PASSWORD=（新しい長いランダム文字列）
+# 通常通り起動 → admin でログインし /manage_users から職員を再登録
 ```
 
-> 既存職員のシフトデータ（`shifts`）は表示名連動なので、ユーザー再登録時に **旧と同じ表示名** を
-> 使えばシフト履歴は紐づいたまま見える。表示名重複検査が入ったため、同名が複数いる場合は
-> 試用前に表示名の整理が必要。
+職員のシフト履歴は表示名で紐づくので、再登録時に **旧と同じ表示名** を使えば残る。
 
 ---
 
 ## トラブルシュート
 
-- **「`SECRET_KEY` が未設定です（本番では必須）」で起動失敗** → 環境変数 `SECRET_KEY` を設定。
-- **admin の初期パスワードが分からない** → `ADMIN_INIT_PASSWORD` を指定して **新規 instance** で起動するか、起動ログを確認（ランダム生成時のみ表示）。
-- **ログインが何度やっても失敗する** → `/login` は 1 分 10 回でレート制限。1 分待つ。
+| 症状 | 対処 |
+|------|------|
+| `SECRET_KEY が未設定です` で起動失敗 | `export SECRET_KEY=...` を設定 |
+| admin の初期パスワードが分からない | 起動ログを確認。失った場合は上記「旧 DB から移行」と同じ手順 |
+| ログインで 429 が返る | レート制限（1分10回）。1分待つ |
+| `TRUSTED_PROXY_HOPS は非負整数...` で停止 | 値を `0` か `1` に修正 |
+| `'redis' prerequisite not available` | `pip install redis` |
+| 職員に「全体のシフト確認」が出ない | 仕様。フェーズ3 で確定シフトを実装後に開放予定 |

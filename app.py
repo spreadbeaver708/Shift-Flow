@@ -519,6 +519,12 @@ def change_password():
     return render_template("change_password.html")
 
 
+@app.route("/help")
+def help_page():
+    # ログイン済みなら役割別、未ログインなら基本のみ表示
+    return render_template("help.html")
+
+
 @app.route("/logout")
 def logout():
     session.clear()

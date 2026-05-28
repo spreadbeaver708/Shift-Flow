@@ -26,7 +26,8 @@
             <a href="{{ url_for('worker', name=current_user.name) }}" class="menu-btn btn-entry">自分のシフト入力</a>
         {% endif %}
 
-        <div style="margin-top: 40px;">
+        <div style="margin-top: 40px; display:flex; justify-content:center; gap:20px;">
+            <a href="{{ url_for('help_page') }}" style="color: #888; text-decoration: none; font-size: 0.9rem;">使い方</a>
             <a href="{{ url_for('logout') }}" style="color: #888; text-decoration: none; font-size: 0.9rem;">ログアウト</a>
         </div>
     </div>
