@@ -11,11 +11,17 @@
         <h1>ユーザー管理</h1>
         <a href="{{ url_for('menu') }}" class="btn-back">← メニューに戻る</a>
 
+        {% with msgs = get_flashed_messages() %}
+          {% if msgs %}<p style="color:green; text-align:center; font-weight:bold;">{{ msgs[0] }}</p>{% endif %}
+        {% endwith %}
+
         <div style="background:#f9f9f9; padding:15px; border-radius:10px; border:1px solid #ddd; margin-bottom:20px;">
             <form method="post" id="user-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="action" value="add">
                 <label>ユーザーID</label><input type="text" name="username" id="f_id" required>
-                <label>パスワード</label><input type="password" name="password" id="f_pass" required>
+                <label>パスワード <span style="font-size:0.75rem; color:#888;">（修正時は空欄で変更なし）</span></label>
+                <input type="password" name="password" id="f_pass" autocomplete="new-password">
                 <label>お名前</label><input type="text" name="name" id="f_name" required>
                 <div style="display:flex; gap:20px; align-items:center; margin:10px 0;">
                     <div>色設定：<input type="color" name="color" id="f_color" value="#e8f5e9" style="width:60px; height:35px;"></div>
@@ -28,12 +34,28 @@
         <table style="width:100%; border-collapse:collapse;">
             {% for user in users %}
             <tr style="border-bottom:1px solid #eee;">
-                <td style="padding:10px;"><span style="display:inline-block; width:12px; height:12px; background:{{user[5]}}; border-radius:50%; border:1px solid #ccc;"></span> <b>{{ user[3] }}</b> ({{ user[0] }})</td>
+                <td style="padding:10px;"><span style="display:inline-block; width:12px; height:12px; background:{{user[4]}}; border-radius:50%; border:1px solid #ccc;"></span> <b>{{ user[2] }}</b> ({{ user[0] }})</td>
                 <td style="text-align:right; white-space:nowrap;">
-                    <button type="button" class="btn-month" style="background:#FF9800; padding:5px 10px; font-size:0.75rem;" onclick="fillForm('{{user[0]}}', '{{user[1]}}', '{{user[3]}}', '{{user[2]}}', '{{user[5]}}')">修正</button>
+                    <button type="button" class="btn-month btn-edit"
+                            style="background:#FF9800; padding:5px 10px; font-size:0.75rem;"
+                            data-username="{{ user[0] }}"
+                            data-name="{{ user[2] }}"
+                            data-role="{{ user[1] }}"
+                            data-color="{{ user[4] }}">修正</button>
                     {% if user[0] != 'admin' %}
-                    <form method="post" style="display:inline;"><input type="hidden" name="action" value="toggle"><input type="hidden" name="username" value="{{ user[0] }}"><input type="hidden" name="current_status" value="{{ user[4] }}"><button type="submit" class="btn-month" style="padding:5px 8px; font-size:0.75rem; background:{{ '#FF5722' if user[4]==1 else '#2196F3' }};">{{ '停止' if user[4]==1 else '復活' }}</button></form>
-                    <form method="post" style="display:inline;" onsubmit="return confirm('本当に削除しますか？');"><input type="hidden" name="action" value="delete"><input type="hidden" name="username" value="{{ user[0] }}"><button type="submit" class="btn-month" style="padding:5px 8px; font-size:0.75rem; background:#666;">削除</button></form>
+                    <form method="post" style="display:inline;">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="action" value="toggle">
+                        <input type="hidden" name="username" value="{{ user[0] }}">
+                        <input type="hidden" name="current_status" value="{{ user[3] }}">
+                        <button type="submit" class="btn-month" style="padding:5px 8px; font-size:0.75rem; background:{{ '#FF5722' if user[3]==1 else '#2196F3' }};">{{ '停止' if user[3]==1 else '復活' }}</button>
+                    </form>
+                    <form method="post" style="display:inline;" onsubmit="return confirm('本当に削除しますか？');">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="action" value="delete">
+                        <input type="hidden" name="username" value="{{ user[0] }}">
+                        <button type="submit" class="btn-month" style="padding:5px 8px; font-size:0.75rem; background:#666;">削除</button>
+                    </form>
                     {% else %}<span style="color:#bbb; font-size:0.7rem;">(保護)</span>{% endif %}
                 </td>
             </tr>
@@ -41,12 +63,19 @@
         </table>
     </div>
     <script>
-    function fillForm(id, pass, name, role, color) {
-        document.getElementById('f_id').value = id; document.getElementById('f_pass').value = pass;
-        document.getElementById('f_name').value = name; document.getElementById('f_role').value = role;
-        document.getElementById('f_color').value = color; document.getElementById('submit-btn').innerText = '修正内容を保存';
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
+    // A: 編集時にパスワードはサーバから送らない。data-* 属性で値を渡し、パスワード欄は空欄。
+    document.querySelectorAll('.btn-edit').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+            var d = e.currentTarget.dataset;
+            document.getElementById('f_id').value    = d.username;
+            document.getElementById('f_name').value  = d.name;
+            document.getElementById('f_role').value  = d.role;
+            document.getElementById('f_color').value = d.color;
+            document.getElementById('f_pass').value  = '';  // 編集時は空欄＝据え置き
+            document.getElementById('submit-btn').innerText = '修正内容を保存';
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        });
+    });
     </script>
 </body>
 </html>

@@ -1,2 +1,6 @@
-Flask
-gunicorn
+Flask==3.1.0
+gunicorn==23.0.0
+Flask-WTF==1.2.1
+Flask-Limiter==3.8.0
+# RATELIMIT_STORAGE_URI=redis://... を使う場合は次行のコメントを外す（または別途 pip install）
+# redis==5.0.8

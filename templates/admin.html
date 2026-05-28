@@ -26,7 +26,10 @@
                         <b style="display:block; border-bottom:1px solid #f0f0f0; margin-bottom:3px;">{{ day }}</b>
                         {% for row in rows %}
                             {% if row[0] == day and row[2] == '〇' %}
-                                <div class="shift-tag" style="background:{{ row[3] }}; cursor:pointer;" onclick="alert('【{{ row[1] }}さんの備考】\n{{ row[4] }}')">
+                                <div class="shift-tag shift-tag-remark"
+                                     style="background:{{ row[3] }}; cursor:pointer;"
+                                     data-name="{{ row[1] }}"
+                                     data-remark="{{ row[4] }}">
                                     {% if row[4] %}☆{% endif %}{{ row[1] }}
                                 </div>
                             {% endif %}
@@ -38,5 +41,14 @@
             {% endfor %}
         </table>
     </div>
+    <script>
+    // E: onclick への値埋め込みを廃止し、dataset 経由で安全に取り出す
+    document.querySelectorAll('.shift-tag-remark').forEach(function(el) {
+        el.addEventListener('click', function(e) {
+            var d = e.currentTarget.dataset;
+            alert('【' + d.name + 'さんの備考】\n' + d.remark);
+        });
+    });
+    </script>
 </body>
 </html>

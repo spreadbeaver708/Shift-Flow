@@ -21,6 +21,7 @@
     </div>
 
     <form method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <table class="calendar-table">
             <tr><th>日</th><th>月</th><th>火</th><th>水</th><th>木</th><th>金</th><th>土</th></tr>
             {% for week in cal %}
