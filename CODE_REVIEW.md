@@ -1,7 +1,7 @@
 # Shift-Flow コードレビュー報告書
 
 - **対象**: カウンセリングルーム シフト管理アプリ（Flask製）
-- **構成**: `app.py`(196行) / `templates/*`(8ファイル) / `static/style.css` / `requirements.txt`
+- **構成**（v5.3 時点）: `app.py`(543行) / `templates/*`(8ファイル：admin, change_password, help, index, login, manage_users, menu, worker — v1 の result.html はフェーズ2 で削除、help.html はフェーズ2 で追加) / `static/style.css` / `requirements.txt`
 - **想定運用**: **インターネット公開**。各スタッフがスマホからシフト希望を入力、管理者が集計・調整。
 - **レビュー履歴**:
   - 初版 2026-05-28（Claude Code）
@@ -9,15 +9,28 @@
   - v3 2026-05-28 — Codexからの再評価を反映（P/Q/R/S 追加、ロードマップ再構成、`fillForm` 例修正）
   - v4 2026-05-28 — 希望/確定の閲覧モデル明確化、SQLite例の単一化、Cookieは本番限定
   - v4.1 2026-05-28 — Codex 最終評価を反映（フェーズ1閲覧条件補正、`SECRET_KEY` fail-fast、`FLASK_ENV` → `APP_ENV`）
-  - **v4.2 2026-05-28 — 最終確定版**（Codex フォローアップを反映：テンプレを `current_user` に統一、**S を 🟡 中に格上げしフェーズ1へ**、login 例に `session.clear()`）
+  - v4.2 2026-05-28 — 実装前最終確定版（Codex フォローアップを反映：テンプレを `current_user` に統一、S を 🟡 中に格上げしフェーズ1へ、login 例に `session.clear()`）
+  - v5.0 2026-05-28 — 実装完了版（フェーズ0/1/2 を完遂、Codex 連続レビューの後追加指摘も全て反映。詳細は §9 を参照）
+  - v5.1 2026-05-28 — 試用前最終レビュー（Claude 自己レビュー + Plan agent 独立第二意見で全ファイル再点検、18 件の findings を §10 に記録。試用前必修 8 件 / 試用前推奨 3 件 / 試用後でよい 7 件）
+  - v5.2 2026-05-28 — Codex 第8回レビューを反映（運用事故・初心者目線・テスト不在の盲点を補強。試用前必修に V19/V20 を追加、推奨に V21/V22/V24 を追加、V1 を `must_change_password` で拡張。§7 ロードマップに フェーズ2.5 を新設し具体的スケジュールを記載）
+  - v5.3 2026-05-28 — Codex 第9回レビューを反映（件数不整合の修正、CSRF エラーハンドラ実装案を `@app.errorhandler(CSRFError)` に訂正、V20 を `original_username`/`mode` 方式で具体化、V23 に `ALTER TABLE` 冪等マイグレーションと除外パス（`/change_password`, `/logout`, `/static`, `/help`）を明記、V19 を「削除ボタン撤去」に決め打ち、メタ情報（行数）を実数 543 行に更新、§0 K を「フェーズ2.5 / V1, V23」に、§10.7 ブランチ案を §7.1 と整合する 2 ブランチ構成に更新）
+  - **v5.4 2026-05-28 — Codex 第10回レビューを反映**（V2 サンプルコードを `session.clear()` → `flash()` → `redirect()` の正しい順序に訂正、V19「撤去 or 二重 confirm」の残存表現を §7/§8/§10.6 で「撤去」に統一、ステータス表記 `v5.2 時点` を `v5.3 時点` に更新、§10.1 に v5.3 時点の総 finding 数 25 件の内訳表を追加、§7.1 Go/No-Go 判定を「ゲート条件」と「完了推奨だが No-Go 条件ではない項目」に分離。**おそらくこれが最後のレビュー反映**）
 - **環境**: Python 3.14.2 / Flask 3.1.0
-- **本レビューの範囲**: 報告のみ（本体コードは未変更）。重大・高リスク項目は実機で再現確認済み。
-- **本書のステータス**: **実装前チェックリスト（最終確定版）**。フェーズ1着手前に §7 の手順で取りかかる。
+- **本レビューの範囲**: 報告 → 実装。重大・高リスク項目は実機で再現確認・修正後リグレッション確認済み。
 
-> ⚠️ **結論を先に**: 現状のままインターネット公開すると、**全パスワード漏洩**・**なりすまし**・
-> **管理者画面での任意スクリプト実行**・**職員による全同僚の備考閲覧**・**停止/降格後も旧セッションで
-> 管理画面アクセス可能**といった事象が現実的に起こり得ます。
-> §7「フェーズ1（試用開始の前提）」が **そろうまでは公開しないでください**。
+### 現在のステータス（v5.3 時点）
+
+- **フェーズ0/1/2 B案 完遂**（main にマージ済み）。詳細は §9 を参照。
+- **フェーズ2.5（v5.1 + Codex 第8回 で発見された試用前必修・推奨 を実装）が未着手**。詳細は §7・§10。
+- **試用開始の可否**: フェーズ2.5 の **試用前必修項目（V1〜V8, V19, V20, V23）が完了するまでは
+  本番公開しない方針**。フェーズ1 で塞いだ穴は健在だが、運用事故（誤削除・誤 ID 編集）・
+  CSRF 期限切れ UX 破壊・change_password 総当たり経路 が未対応のため。
+
+> ⚠️ **過去の結論（v1 時点、参考のため保存）**:
+> v1（初版 2026-05-28）の時点では、**全パスワード漏洩**・**なりすまし**・**管理者画面での任意スクリプト実行**・
+> **職員による全同僚の備考閲覧**・**停止/降格後も旧セッションで管理画面アクセス可能** が起こり得る状態だった。
+> これらは **フェーズ1（A〜S）と Codex 後追加 C#1〜C#11 の実装で全て解消済み**（§9 実装結果を参照）。
+> 現在のリスクは §10 を参照。
 
 > 📌 **確定した運用方針（v4.2 最終確定）**
 > 1. **「シフト希望」と「確定シフト」を分ける** … 職員は希望提出、管理者が調整して確定を保存。
@@ -37,29 +50,45 @@
 
 ## 0. サマリ（重大度順）
 
-| # | 重大度 | 項目 | 該当箇所 | 推奨対応 |
-|---|--------|------|----------|----------|
-| A | 🔴 重大 | パスワード平文保存＋ブラウザへ平文送信 | `app.py:23,30,65,154` / `manage_users.html:33` | ハッシュ化、編集時はパスワード非送信 |
-| B | 🔴 重大 | `secret_key` ハードコード（git commit済み） | `app.py:8` | 環境変数化＋ローテーション |
-| C | 🔴 重大 | 既知の初期 `admin` / `admin123` | `app.py:30` | 環境変数で初期化、初回強制変更 |
-| D | 🟠 高 | CSRF対策が皆無（全POST） | `app.py:60-188` | Flask-WTF の CSRFProtect |
-| E | 🟠 高 | 備考の保存型XSS＋改行で機能破損 | `admin.html:29` | onclick への埋め込み廃止／可能なら addEventListener |
-| N | 🟠 高 | 職員が全員のシフト・備考を閲覧可（認可・プライバシー） | `app.py:128` / `menu.html:28` / `admin.html:27-31` | フェーズ1: `/admin` を管理者専用（職員メニューからリンク削除）。全体〇× 公開はフェーズ3 確定シフトと同時 |
-| F | 🟠 高 | `REPLACE INTO` による停止解除・重複バグ | `app.py:154` | UPDATE/INSERT 明示分岐、is_active 維持 |
-| **Q** | 🟠 高 | **停止/降格後も旧セッションで管理画面に到達可（実機確認済）** | `app.py:75,118,123,128,143` | リクエスト毎にDBからユーザー状態を再取得して認可判定 |
-| G | 🟡 中 | 本番で `debug=True` 相当の危険 | `app.py:196` | gunicorn運用・debug禁止 |
-| H | 🟡 中 | セッションCookie属性が未設定 | `app.py`(全体) | Secure/HttpOnly/SameSite |
-| I | 🟡 中 | ログイン試行回数の制限なし | `app.py:60` | Flask-Limiter で簡易レート制限 |
-| J | 🟡 中 | シフトを表示名で管理（同名衝突） | `app.py:92,110,133` | **直接 `user_id` 基準へ**（§4① と一体実装） |
-| O | 🟡 中 | 範囲外 year/month で500クラッシュ | `app.py:88,129,139` | 範囲・値の検証 |
-| **P** | 🟡 中 | **ログイン時に旧セッションを破棄していない** | `app.py:67-68` | `session.clear()` してから新セッションを設定 |
-| K | 🟢 低 | `change_password` が未ログインで実行可 | `app.py:174-188` | 仕様確認・情報露出注意 |
-| L | 🟢 低 | `result.html` 未使用・起動毎 DELETE | `result.html` / `app.py:33` | 削除・副作用の認識 |
-| M | 🟢 低 | 依存バージョン未固定 | `requirements.txt` | バージョンピン留め |
-| **R** | 🟢 低 | **SQLite 同時書き込み堅牢化未対応** | `app.py:14` | `timeout` 指定／WAL／明示トランザクション |
-| **S** | 🟡 中 | **`shift.db` パスが CWD 依存の相対固定**（gunicorn 起動場所違いで別DBを作る事故） | `app.py:14` | 環境変数 `SHIFT_DB_PATH` or `app.instance_path` 配下へ（v4.2でフェーズ1へ昇格） |
+凡例: **✅** = 実装済（フェーズ1 または フェーズ2）／**⏳** = 後続フェーズで対応予定
 
-太字は**後続レビューで追加・昇格した項目**です（v3 で追加: P/Q/R/S、v4.2 で S を 🟢→🟡 へ昇格）。Codex の各回再評価指摘を全件取り込みました。
+| # | 重大度 | 項目 | 状態 | 実装内容 |
+|---|--------|------|------|----------|
+| A | 🔴 重大 | パスワード平文保存＋ブラウザへ平文送信 | ✅ Phase1 | `werkzeug.security` でハッシュ化、`manage_users` は `data-*` 属性でパスワード非送信 |
+| B | 🔴 重大 | `secret_key` ハードコード | ✅ Phase1 | `SECRET_KEY` 環境変数化、本番 fail-fast、開発のみランダム |
+| C | 🔴 重大 | 既知の初期 `admin` / `admin123` | ✅ Phase1 | `ADMIN_INIT_PASSWORD` 環境変数。未指定ならランダム生成しログに一度だけ表示 |
+| D | 🟠 高 | CSRF対策が皆無 | ✅ Phase1 | `CSRFProtect`、全 POST フォームに `csrf_token` |
+| E | 🟠 高 | 備考の保存型XSS＋改行で機能破損 | ✅ Phase1 | `onclick` 廃止、`data-name`/`data-remark` + `addEventListener` |
+| N | 🟠 高 | 職員が全員のシフト・備考を閲覧可 | ✅ Phase1 | `/admin` を管理者専用化（403）、職員メニューからリンク削除 |
+| F | 🟠 高 | `REPLACE INTO` による停止解除・重複バグ | ✅ Phase1 | UPDATE/INSERT 明示分岐、`is_active` 維持、PW空欄で据え置き |
+| Q | 🟠 高 | 停止/降格後も旧セッションで管理画面到達可 | ✅ Phase1 | `before_request` で DB から `g.user` 再取得、`context_processor` で `current_user` 注入 |
+| G | 🟡 中 | 本番 `debug=True` の危険 | ✅ Phase1 | `app.run(debug=False)` + `APP_ENV=production` で直接実行を例外停止 |
+| H | 🟡 中 | セッションCookie属性未設定 | ✅ Phase1 | `SECURE`(本番のみ)/`HTTPONLY`/`SAMESITE=Lax` |
+| I | 🟡 中 | ログイン試行回数の制限なし | ✅ Phase1 | `Flask-Limiter` で `/login` `/change_password` を 10/分 |
+| J | 🟡 中 | シフトを表示名で管理（同名衝突） | ⏳ Phase3（暫定 Phase2） | 試用前の暫定対策として表示名 UNIQUE 検査をアプリ層で追加。`user_id` 化はフェーズ3 §4① と一体実装予定 |
+| O | 🟡 中 | 範囲外 year/month で500クラッシュ | ✅ Phase1 | `safe_ym` で範囲検証、status/role/color/備考長も検証 |
+| P | 🟡 中 | ログイン時に旧セッションを破棄していない | ✅ Phase1 | `session.clear()` を必ず先行 |
+| K | 🟠 高（v5.1 で格上げ） | `change_password` が未ログインで実行可 | ⏳ Phase2.5 / V1, V23 | v5.1 で「試用前必修」に格上げ。`require_login()` 必須化（V1）＋ `must_change_password` 強制リダイレクト（V23）で対応 |
+| L | 🟢 低 | `result.html` 未使用・起動毎 DELETE | ✅ Phase2 | `templates/result.html` 削除、起動時 `DELETE FROM shifts` 撤去 |
+| M | 🟢 低 | 依存バージョン未固定 | ✅ Phase1 | `requirements.txt` に Flask/gunicorn/Flask-WTF/Flask-Limiter をピン留め |
+| R | 🟢 低 | SQLite 同時書き込み堅牢化未対応 | ✅ Phase2 | `get_db()` に `timeout=30` / `journal_mode=WAL` / `synchronous=NORMAL` / `foreign_keys=ON` |
+| S | 🟡 中 | `shift.db` パスが CWD 依存の相対固定 | ✅ Phase1 | `SHIFT_DB_PATH` 環境変数。本番では絶対パス必須（fail-fast） |
+
+### Codex 連続レビューで後追加した項目（フェーズ1/2 で対応済）
+
+| # | 内容 | 状態 |
+|---|------|------|
+| C#1 | `manage_users` add の検証順序（無効PW時の `shifts.name` 不整合） | ✅ Phase1 |
+| C#2 | `init_db` の冪等化（`gunicorn -w 2` 競合） | ✅ Phase1 |
+| C#3 | `SHIFT_DB_PATH` 本番絶対パス必須 | ✅ Phase1 |
+| C#4 | `Flask-Limiter` の `storage_uri` 明示と `redis` インストール案内 | ✅ Phase1 |
+| C#5 | 管理者の自己降格・最後の有効 admin 保護 | ✅ Phase2 |
+| C#6 | 表示名重複検査（J の暫定対策） | ✅ Phase2 |
+| C#7 | 表示名に `/ \ ? # & < >` 等の URL 危険文字禁止 | ✅ Phase2 |
+| C#8 | リバプロ配下の `ProxyFix`（`TRUSTED_PROXY_HOPS`） | ✅ Phase2 |
+| C#9 | 旧 DB（平文 PW）からの移行手順を README 化 | ✅ Phase2 |
+| C#10 | WAL モードでの `sqlite3 .backup` バックアップ手順 | ✅ Phase2 |
+| C#11 | `TRUSTED_PROXY_HOPS` 不正値の明示エラー（fail-fast） | ✅ Phase2 |
 
 ---
 
@@ -535,79 +564,587 @@ shift_confirmed(id, user_id, year, month, day, status, updated_by, updated_at) -
 
 > **受け入れ基準**: §8 のチェックリストのうち、**A〜I・N・O・P・Q・S** がすべて緑になること。
 
-### フェーズ2：試用初期に並行で進める堅牢化（試用開始後 1〜2 週間）
-15. **L** `result.html` 削除・起動時 DELETE を分離
-16. **M** 依存バージョン固定（Flask, gunicorn, Flask-WTF, Flask-Limiter, python-dotenv）
-17. **R** SQLite 堅牢化（`timeout` / WAL / 明示TX）
-18. **K** `change_password` の仕様整理（レート制限と合わせて運用判断）
-19. inline `onclick` の全廃→`addEventListener`（CSP導入の前準備）
+### フェーズ2：試用初期に並行で進める堅牢化（B 案：試用前に L/R を先取り済み）
+15. **L** `result.html` 削除・起動時 DELETE を分離 — **✅ 完了（B案で前倒し）**
+16. **M** 依存バージョン固定（Flask, gunicorn, Flask-WTF, Flask-Limiter） — **✅ 完了**
+17. **R** SQLite 堅牢化（`timeout` / WAL / 明示TX） — **✅ 完了（B案で前倒し）**
+18. **K** `change_password` の仕様整理 — **フェーズ2.5 に格上げ**（V1/V23 として処理）
+19. inline `onclick` の全廃→`addEventListener`（CSP導入の前準備） — **試用後 / フェーズ2 後半**
 
 > v4.2 修正: **S はフェーズ1 に移動**（gunicorn 起動と同時に効く事故防止のため）。
+> v5.0 修正: **L/M/R はフェーズ2 B案として試用前に完了**。
+> v5.1/v5.2 で **試用前必修の追加項目（V1〜V8, V19, V20, V23）が判明**したため、
+> 試用開始前に **フェーズ2.5** を挟む方針に更新。
+
+### フェーズ2.5：試用前最終堅牢化（v5.2 新設・公開前必須）
+
+v5.1（自主レビュー）と v5.2（Codex 第8回）で発見された **試用前必修 11 件 + 推奨 6 件 = 17 件**
+を着手する。試用開始の最終ゲート。詳細は §10 を参照。
+
+**試用前必修（11件）**:
+1. V1 — `change_password` をログイン済み専用に
+2. V2 — CSRF 例外時のカスタムハンドラ（UX 救済）
+3. V3 — `menu.html` の `alert("{{ ... }}")` を `tojson` に
+4. V4 — `index.html` の月切替リンクを `index` に修正
+5. V5 — `?submitted=true` を `history.replaceState` で除去
+6. V6 — admin 初期パスワード取り扱いの README 注記
+7. V7 — `instance/` / DB ファイルパーミッションの README 手順
+8. V8 — `worker` 認可失敗時の遷移先を menu / 403 に
+9. V19 — ユーザー削除ボタン撤去（停止運用に寄せる）
+10. V20 — 修正フォームの username readonly 化
+11. V23 — `must_change_password` フラグ + 強制リダイレクト（V1 の拡張）
+
+**試用前推奨（6件）**:
+- V9 — 軽量セキュリティヘッダ（`X-Frame-Options` 等）
+- V10 — README の `-w 1` 推奨理由を 1 行補足
+- V11 — `session["role"]/["name"]` 削除
+- V21 — 本書の状態整理（v5.2 で対応中）
+- V22 — `tests/` ディレクトリ整備（pytest）
+- V24 — README コマンドを `python3` 併記
 
 ### フェーズ3：本格運用機能（試用結果を踏まえて 1〜2 か月）
 20. **§4①** 希望提出／確定シフトの分離（同時に **J** を `user_id` 化、**確定シフト画面で全員の〇× を職員にも公開**）
 21. **§4②** 提出状況ダッシュボード（未提出者・締め日・締め後ロック）
-22. **§4③** パスワード再発行（管理者→初回変更）
+22. **§4③** パスワード再発行（管理者→初回変更、V23 を本格化）
 23. **§4④** 監査ログ
 24. **§4⑤⑥** 開室曜日の設定化／CSV出力（任意）
 
 ### フェーズ4：長期運用の保守性
-25. README 化（環境変数・gunicorn・HTTPS・バックアップ/復元手順）
+25. README 化（環境変数・gunicorn・HTTPS・バックアップ/復元手順） — **✅ 完了**
 26. SQLite 日次バックアップ＋管理者ダウンロード導線
-27. デザインの保守改善（インライン style 集約・worker/index 重複の共通テンプレ化・暗色カラーの文字色自動調整）
+27. デザインの保守改善（インライン style 集約・worker/index 重複の共通テンプレ化 V25・暗色カラーの文字色自動調整）
 28. 監査ログのローテーション・容量監視
+
+---
+
+### 7.1 具体的スケジュール（v5.3 時点の見立て）
+
+> **前提**: 開発リソースは「ユーザー + Claude」の組み合わせ、1 日あたりの実作業時間は限定的。
+> 1 週間 ＝ おおむね 5 営業日換算で見積。
+
+| 期間 | 内容 | 完了条件 |
+|------|------|----------|
+| **Week 1（直近）** | **フェーズ2.5 着手・前半**：V1/V19/V20/V23（運用事故とセキュリティ最優先）+ V2（CSRF UX） | `feature/phase2.5-security-and-safety` ブランチで PR 化 → main マージ |
+| **Week 2** | **フェーズ2.5 後半**：V3/V4/V5/V8（UI バグ・XSS パターン）+ V9（ヘッダ）+ V6/V7/V10/V24（README 補強）+ V11（session 整理） | `feature/phase2.5-ux-and-docs` ブランチで PR 化 → main マージ |
+| **Week 2 末** | **V22**：`tests/` 整備・既存スモークを pytest 化 | `requirements-dev.txt` と `tests/` を main に。`pytest` がローカルで通る |
+| **Week 3** | **試用開始**（社内・少人数 3〜5 名・1 か月）。`APP_ENV=production` + 絶対パス `SHIFT_DB_PATH` + Caddy/Nginx 経由 HTTPS + `TRUSTED_PROXY_HOPS=1` + `gunicorn -w 1` |  実機で §8 受け入れテスト全項目を再確認、初期 admin パスワード設定、職員アカウントを管理者が作成 |
+| **Week 3〜6** | **試用初期フェーズ**：日次バックアップ稼働、職員からのフィードバック収集、軽微 UX バグ対応、本書 §10.4 の試用後項目（V12〜V18, V25）を順次対応 | フィードバックを GitHub Issues 等に記録 |
+| **Week 7〜10**（約 1 か月後） | **フェーズ3 着手**：§4① 希望／確定シフト分離 + `user_id` 化（J の根本対応）、§4② 提出状況ダッシュボード、§4③ パスワード再発行ワークフロー本格化 | DB マイグレーションは試用 DB のバックアップ → 移行スクリプト → 検証 → 切替の手順を確立 |
+| **Week 11〜14** | **フェーズ3 後半**：§4④ 監査ログ、§4⑤⑥（開室曜日設定化・CSV/印刷出力） | 監査ログが残り、CSV エクスポートで月次集計可能 |
+| **3 か月後以降** | **フェーズ4**：CI（GitHub Actions）、SQLite 日次バックアップ自動化、デザイン保守、監査ログのローテーション | 運用ハンドオフ可能な状態 |
+
+#### 試用開始の Go / No-Go 判定基準（Week 3 直前）
+
+以下がすべて緑のとき、試用開始可能:
+
+**ゲート条件（すべて満たさないと試用開始しない）**:
+- [ ] フェーズ2.5 の試用前必修 11 件（V1〜V8, V19, V20, V23）が全て main にマージ済み
+- [ ] V21（本書の状態整理）完了 — 試用判断資料の品質保証のため必須
+- [ ] V22（`tests/` pytest 整備）完了 — 今後の修正でリグレッションが検出できる状態のため必須
+- [ ] `pytest` が全件パス（§8 受け入れテストの自動化版）
+- [ ] 実機（スマホ） + ブラウザで §8 受け入れチェックリストを目視確認
+- [ ] サーバー側のパーミッション設定（V7）と admin 初期パスワード手順（V6）を README 通りに実施
+- [ ] バックアップ手順（`sqlite3 .backup`）を実機で 1 度試して復元可能を確認
+- [ ] 試用関係者（職員 3〜5 名 + 管理者）に「使い方」（`/help` ページ）を共有
+
+**完了推奨だが No-Go 条件ではない項目**（Codex 第10回で明示）:
+- V9（セキュリティヘッダ）— 試用初期は社内・少人数のため、入れ忘れても致命的ではない
+- V10（README の `-w 1` 補足）— ドキュメント補足
+- V11（`session["role"]/["name"]` 削除）— 整理目的、機能影響なし
+- V24（`python3` 併記）— ドキュメント補足
+
+これらは Week 2 のブランチで一緒に入れる計画だが、間に合わなければ試用開始後の追補で可。
+ただし「全部入った状態で試用開始する」のが理想であり、Week 2 のブランチ完成度を上げる目標は維持する。
+
+#### 試用中の継続監視
+
+- 毎週: `journalctl -u shift-flow` 等でエラー / 警告ログをチェック
+- 毎日: バックアップが取れていることを確認（`ls -lh /var/backups/shift-flow/`）
+- 月初: 前月のシフトデータが残っていることを確認（バックアップから 1 回復元演習）
+- 都度: 職員からの問い合わせを Issues に集約、頻度の高いものをフェーズ3 の機能要件に反映
 
 ---
 
 ## 8. 受け入れテスト（試用開始の合格基準）
 
-フェーズ1 を完了した時点で、以下がすべて緑であること。
+凡例: **✅** 自動テスト + 実機検証で確認済（v5.0/v5.2） / **⏳** フェーズ2.5 で追加対応中 / **[ ]** フェーズ3 で対応予定
+
+### 8.1 フェーズ1 完了時の合格基準（すべて緑、v5.0 で達成済）
 
 **🔴 重大・🟠 高**
-- [ ] 固定 `secret_key` と `admin123` がコードに存在しない（A/B/C）
-- [ ] パスワードが DB にも HTML にも平文で出ない（A）
-- [ ] CSRFトークン無しの POST が拒否される（D）
-- [ ] 悪意ある備考（`'`・改行・`<script>`）で管理者画面にスクリプト実行されない（E）
-- [ ] **職員は `/admin` にアクセスできない**（フェーズ1では管理者専用／N）
-- [ ] **職員メニューに「全体のシフト確認」リンクが表示されない**（N）
-- [ ] 職員は `/manage_users` にアクセスできない（既存保護を維持）
-- [ ] **停止した職員の旧セッションから `/menu` `/worker` にアクセスできない**（Q）
-- [ ] **worker に降格された旧 admin の旧セッションで `/manage_users` にアクセスできない**（Q）
-- [ ] **降格された旧adminの旧セッションでメニューに管理者向けリンクが表示されない**（Q／テンプレも `current_user` 経由＝v4.2）
-- [ ] 停止ユーザーを編集しても勝手に復活しない（F）
+- ✅ 固定 `secret_key` と `admin123` がコードに存在しない（A/B/C）
+- ✅ パスワードが DB にも HTML にも平文で出ない（A）
+- ✅ CSRFトークン無しの POST が拒否される（D）
+- ✅ 悪意ある備考（`'`・改行・`<script>`）で管理者画面にスクリプト実行されない（E）
+- ✅ 職員は `/admin` にアクセスできない（フェーズ1では管理者専用／N）
+- ✅ 職員メニューに「全体のシフト確認」リンクが表示されない（N）
+- ✅ 職員は `/manage_users` にアクセスできない（既存保護を維持）
+- ✅ 停止した職員の旧セッションから `/menu` `/worker` にアクセスできない（Q）
+- ✅ worker に降格された旧 admin の旧セッションで `/manage_users` にアクセスできない（Q）
+- ✅ 降格された旧adminの旧セッションでメニューに管理者向けリンクが表示されない（Q／テンプレも `current_user` 経由）
+- ✅ 停止ユーザーを編集しても勝手に復活しない（F）
 
 **🟡 中**
-- [ ] `month=13` や欠落フォームで 500 にならない（O）
-- [ ] ログインに `/login` 連打すると一定回数で 429 が返る（I）
-- [ ] ログイン直後の session に前ユーザーの値が残らない（P）
-- [ ] `debug` が無効、本番は gunicorn 起動（G/H）
-- [ ] **DB ファイルが `SHIFT_DB_PATH` 等で固定された絶対パスに置かれ、CWD 違いで別 DB が作られない**（S／v4.2 でフェーズ1 へ）
+- ✅ `month=13` や欠落フォームで 500 にならない（O）
+- ✅ ログインに `/login` 連打すると一定回数で 429 が返る（I）
+- ✅ ログイン直後の session に前ユーザーの値が残らない（P）
+- ✅ `debug` が無効、本番は gunicorn 起動（G/H）
+- ✅ DB ファイルが `SHIFT_DB_PATH` 等で固定された絶対パスに置かれ、CWD 違いで別 DB が作られない（S）
 
-**🟢 低 / フェーズ2 以降**
-- [ ] `templates/result.html` が存在しない（L）
-- [ ] 依存が `requirements.txt` でピン留め済（M）
-- [ ] 同時多発書き込みで「database is locked」が出ない（R）
+**🟢 低 / フェーズ2 以降（B 案で前倒し済）**
+- ✅ `templates/result.html` が存在しない（L）
+- ✅ 依存が `requirements.txt` でピン留め済（M）
+- ✅ 同時多発書き込みで「database is locked」が出ない（R）
 
-**フェーズ3 完了時**
+### 8.2 フェーズ2.5 完了時の合格基準（試用開始の合格基準）
+
+**🟠 試用前必修（v5.1 + v5.2 Codex 第8回）**
+- ⏳ `/change_password` がログイン必須、username 欄が無い（V1）
+- ⏳ 初回ログイン時 `must_change_password=1` の admin / 新規職員は `/change_password` に強制誘導（V23）
+- ⏳ CSRF トークン期限切れ POST がカスタム親切ページに着地（V2）
+- ⏳ `menu.html` の flash 表示が `tojson` 経由で JS 文脈安全（V3）
+- ⏳ 管理者画面の今月/翌月リンクが `index.html` を指す（V4）
+- ⏳ シフト送信後ブラウザ更新で確認ダイアログが再発火しない（V5）
+- ⏳ README に admin 初期パスワードのログ運用注意と `chmod 700 / 600` 手順が明記（V6/V7）
+- ⏳ 他人の `/worker/<name>` を叩いたとき menu へリダイレクト or 403 で混乱しない（V8）
+- ⏳ 管理画面から「削除」ボタンが撤去され、停止が一次対処として推奨される（V19）
+- ⏳ 修正フォームで username が readonly、ID 改変送信は server 側でも拒否（V20）
+
+**🟡 試用前推奨**
+- ⏳ レスポンスに `X-Frame-Options: DENY` / `X-Content-Type-Options: nosniff` 等が付与（V9）
+- ⏳ README の起動コマンドが `python3` 併記（V24）
+- ⏳ README に「`-w 1` はレート制限ストレージ共有のため」一文（V10）
+- ⏳ `session["role"]/["name"]` 格納が削除され、`username` 1 本のみ（V11）
+- ⏳ `tests/` ディレクトリに `pytest` 用テストが整備され、ローカルで全件パス（V22）
+- ⏳ CODE_REVIEW.md の状態混在が解消され、現状ステータスが冒頭で明確（V21、本 v5.2 で対応）
+
+### 8.3 フェーズ3 完了時（試用後 1〜2 か月）
+
 - [ ] 同名職員を作っても希望/確定が混線しない（J→`user_id` 化）
 - [ ] 管理者が提出状況を確認し、確定シフトを保存できる（§4①②）
-- [ ] 職員は **他人の希望にアクセスできない**（希望は自分のみ）（§4①）
-- [ ] 職員は **確定の全体〇×** を閲覧できる（公的シフト表として共有）（§4①）
+- [ ] 職員は他人の希望にアクセスできない（希望は自分のみ）（§4①）
+- [ ] 職員は確定の全体〇×を閲覧できる（公的シフト表として共有）（§4①）
 - [ ] 確定シフトには備考列が存在しない／表示されない（§4①）
-- [ ] 管理者がパスワード再発行できる（§4③）
+- [ ] 管理者がパスワード再発行できる（§4③、V23 のフロー本格化）
 - [ ] 主要操作が監査ログに記録される（§4④）
+- [ ] `index.html` と `worker.html` がテンプレ共通化されている（V25）
 
 ---
 
 ### 付記：本レビューの検証方法・履歴
-- Flask の `test_client` で実際のログイン〜操作フローを再現し、**A／E／F／N／O／Q** を実機確認した
-  （本体コードは変更せず、検証用 DB は破棄）。
-- B／C／D／G・H・I・J・K・L・M・P・R・S はコード静的解析に基づく指摘。
+- Flask の `test_client` で実際のログイン〜操作フローを再現し、**A／E／F／N／O／Q** を実機確認した。
+- B／C／D／G・H・I・J・K・L・M・P・R・S はコード静的解析に基づく指摘から実装へ。
 - 本報告書の統合履歴
   - 初版（Claude Code）→ v2（Codex 外部計画書を統合）→ v3（Codex 第2回再評価を反映）→
     v4（Codex 第3回再評価を反映＋希望/確定の閲覧モデルをユーザー再確認）→
     v4.1（Codex 最終評価を反映：フェーズ1 閲覧条件補正・`SECRET_KEY` fail-fast・`APP_ENV` 統一）→
-    **v4.2 最終確定版（Codex フォローアップを反映：テンプレを `current_user` に統一・S をフェーズ1 へ昇格・login 例に `session.clear()`）**
-- 以降、実装フェーズ1 を着手する際は本書 §7・§8 を参照する。
-- **運用**: `CODE_REVIEW.md` は実装着手前に **レビュー記録としてコミット対象** とする
-  （Codex 最終評価の運用指摘に対応）。
+    v4.2 実装前最終確定版（Codex フォローアップを反映：テンプレを `current_user` に統一・S をフェーズ1 へ昇格・login 例に `session.clear()`）→
+    **v5.0 実装完了版（フェーズ0/1/2 を完遂、Codex 連続レビュー後追加指摘 11件すべて反映、ヘルプページ追加、README を初心者向けに圧縮）**
+
+---
+
+## 9. 実装結果（v5.0 完遂報告）
+
+### 9.1 フェーズ0：試用開始前の準備（完了）
+- `CODE_REVIEW.md` をレビュー記録としてコミット
+- `feature/phase1-security-hardening` ブランチを切って実装
+- 既存 `shift.db` のバックアップ（無いため不要）
+
+### 9.2 フェーズ1：試用開始の前提（完了・main にマージ済）
+
+**実装内容**（PR: `feature/phase1-security-hardening` → main 0661bca）
+
+| 項目 | 主要変更 |
+|------|----------|
+| A | パスワードを `werkzeug.security` でハッシュ化。`manage_users.html` を `data-*` 属性に書き換え、パスワード平文をHTML/サーバから完全排除 |
+| B | `SECRET_KEY` 環境変数化。本番未設定で `RuntimeError`、開発のみランダムフォールバック |
+| C | `ADMIN_INIT_PASSWORD` 環境変数。`INSERT OR IGNORE` で `gunicorn -w N` の競合に対応、ログ表示は書き込み成功 worker のみ |
+| D | `Flask-WTF` の `CSRFProtect` を有効化、全 POST フォームに `csrf_token` |
+| E | `admin.html` の `onclick="alert(...)"` を撤廃、`data-name`/`data-remark` + `addEventListener` |
+| F | `REPLACE INTO` を廃止し UPDATE/INSERT 明示分岐、`is_active` を維持、パスワード空欄で据え置き |
+| G | `app.run(debug=False)`、`APP_ENV=production` で `python app.py` 直接実行を例外停止 |
+| H | `SESSION_COOKIE_SECURE`（本番のみ）/`HTTPONLY`/`SAMESITE=Lax` |
+| I | `Flask-Limiter` で `/login` `/change_password` を 10/分。`storage_uri` を明示 |
+| N | `/admin` を管理者専用化、`menu.html` から職員の「全体のシフト確認」リンクを削除 |
+| O | `safe_ym` で year/month 範囲検証、status/role/color/備考長も検証 |
+| P | ログイン成功時に `session.clear()` を必ず先行 |
+| Q | `before_request` で DB から `g.user` 再取得、`context_processor` で `current_user` をテンプレに注入 |
+| S | `SHIFT_DB_PATH` 環境変数、本番では絶対パス必須（fail-fast） |
+| HTTPS | README に Caddy/Nginx + Let's Encrypt のデプロイ手順を明文化 |
+
+**検証**: `test_client` を使った自動テスト 33 件＋実機HTML検査で全項目グリーン。
+
+### 9.3 フェーズ2：試用前堅牢化 B案（完了）
+
+**実装内容**（PR: `feature/phase2-pre-trial-hardening`）
+
+| 項目 | 主要変更 |
+|------|----------|
+| L | `templates/result.html` 削除、起動時 DELETE は撤去確認 |
+| R | `get_db()` に `timeout=30` / `journal_mode=WAL` / `synchronous=NORMAL` / `foreign_keys=ON` |
+| バックアップ | README を `sqlite3 .backup` 中心の運用に書き換え。`cp shift.db` 単体は WAL モード下で壊れることを実機検証で確認 |
+| C#5 | `manage_users` 全アクションに 3層の admin 保護（自己降格禁止／自己停止・削除禁止／最後の有効 admin の降格・停止・削除禁止） |
+| C#6 | 表示名重複検査をアプリ層で追加（J の暫定対策） |
+| C#7 | 表示名に `/ \ ? # & < >` 改行/タブ/NUL を禁止する `NAME_FORBIDDEN_RE` |
+| C#8 | `TRUSTED_PROXY_HOPS` 環境変数 + `ProxyFix`（既定 0 で適用なし、Caddy/Nginx 経由なら 1） |
+| C#9 | 旧 DB（平文 PW）からの移行手順を README に明記 |
+| C#10 | WAL モードでの `sqlite3 .backup` 推奨手順、復元時の sidecar 削除 |
+| C#11 | `TRUSTED_PROXY_HOPS` 不正値で素の `ValueError` を明示 `RuntimeError` に翻訳 |
+
+**並行性検証**: 4プロセス × 50回 = 200 件の並行 INSERT で `database is locked` 0 件、WAL 有効化で 40% 高速化（0.20s → 0.12s）。
+
+### 9.4 追加対応
+
+- **ヘルプページ** `/help` を追加（`templates/help.html`）。役割（職員/管理者/未ログイン）別に表示内容を出し分け。`menu.html` と `login.html` からリンク。
+- **README** を初心者向けに刷新（203行 → 111行、約 45% 圧縮）。コマンド先行型のクイックスタート、環境変数一覧表、トラブルシュート表を整備。
+
+### 9.5 後続フェーズ予定（試用開始後）
+
+- **フェーズ2 残**: K（`change_password` 仕様整理）、inline `onclick` の全廃 → `addEventListener`（CSP 導入準備）
+- **フェーズ3**: §4① 希望/確定シフト分離・J の本対応（`user_id` 化）、§4② 提出状況ダッシュボード、§4③ パスワード再発行、§4④ 監査ログ
+- **フェーズ4**: 日次バックアップ自動化、デザイン保守改善、監査ログのローテーション
+
+### 9.6 試用開始時の運用チェックリスト
+
+| 項目 | 値 |
+|---|---|
+| `APP_ENV` | `production` |
+| `SECRET_KEY` | `python -c "import secrets; print(secrets.token_hex(32))"` の出力 |
+| `SHIFT_DB_PATH` | 絶対パス（例 `/var/lib/shift-flow/shift.db`） |
+| `TRUSTED_PROXY_HOPS` | リバプロ配下なら `1`、直接公開なら `0` |
+| `ADMIN_INIT_PASSWORD` | 初回のみ・十分長いランダム値 |
+| gunicorn | 初期は `-w 1`（複数 worker 時は `RATELIMIT_STORAGE_URI=redis://...` 推奨） |
+| HTTPS | PaaS 自動 or Caddy/Nginx + Let's Encrypt |
+| バックアップ | `sqlite3 shift.db ".backup '...'"` を cron 日次 |
+
+---
+
+## 10. 試用前最終レビュー（v5.1）
+
+### 10.1 背景
+
+v5.0 でフェーズ0/1/2 完遂・Codex 後追加 C#1〜C#11 反映済。本セクションは
+**試用開始（インターネット公開）直前** の最終チェックとして、Claude（自己レビュー）と
+Plan agent（独立第二意見）の 2 視点で全ファイルを再点検した結果を記録する。
+
+レビュー対象（v5.3 時点）: `app.py`（543行）/ `templates/*.html`（8ファイル）/ `static/style.css` /
+`requirements.txt` / `README.md` / `CODE_REVIEW.md`。
+
+**v5.3 時点の総 findings 数: 25 件**
+
+| 区分 | v5.1（自主 + Plan agent） | v5.2（Codex 第8回） | 合計 |
+|------|----|----|----|
+| 🟠 試用前必修 | 8 件（V1〜V8） | 3 件（V19, V20, V23） | **11 件** |
+| 🟡 試用前推奨 | 3 件（V9, V10, V11） | 3 件（V21, V22, V24） | **6 件** |
+| 🟢 試用後でよい | 7 件（V12〜V18） | 1 件（V25） | **8 件** |
+| 合計 | 18 件 | 7 件 | **25 件** |
+
+v5.3 では Codex 第9回・第10回の指摘で各 finding の修正方針が具体化された
+（件数増減なし、内容のブラッシュアップのみ）。
+§0 サマリへの統合は試用前必修 K（→V1/V23）のみ反映済、その他は §10 を参照。
+
+凡例: **🟠 試用前必修** ／ **🟡 試用前推奨** ／ **🟢 試用後でよい**
+
+### 10.2 試用前必修（11件）
+
+> 内訳: v5.1 で発見 8 件（V1〜V8）+ v5.2 Codex 第8回で追加 3 件（V19, V20, V23）。
+> V23 は V1 の派生（`must_change_password` 強制）として別項目化したもの。
+
+#### V1. 🟠 `change_password` がログイン不要の総当たり経路
+- 場所: `app.py:495-519`
+- 問題: 未ログインで誰でも叩け、`(username, password_current, password_new)` で検証する。
+  `/login` と並列の「username＋現PWを当てに行く」攻撃面が存在。レート制限はあるが IP 単位なので
+  分散攻撃で迂回可能。
+- 修正方針: `require_login()` を必須にし、`username` フォーム項目は廃止（`g.user.username` を使う）。
+  `change_password.html` の username 入力欄も削除。login.html の「PASSWORDを変更」リンクは
+  ログイン後メニュー側に移す。
+- §0 サマリの K（試用後分類）を **試用前必修に格上げ**。
+- **拡張（V23: Codex 第8回指摘・第9回で具体化）**: 初回ログイン時のパスワード変更を強制したい。
+
+  **(a) DB マイグレーション（冪等）**:
+  `init_db()` 内で以下を冪等に実行する（既存 DB / 新規 DB どちらでも安全）:
+  ```python
+  cols = [r[1] for r in conn.execute("PRAGMA table_info(users)").fetchall()]
+  if "must_change_password" not in cols:
+      conn.execute("ALTER TABLE users ADD COLUMN must_change_password INTEGER DEFAULT 0")
+  ```
+  admin 作成（V6 と同じ初期化経路）と、管理者によるパスワード設定（`manage_users` の add アクションで
+  パスワード入力ありの場合）は **`must_change_password=1` をセット**。
+  本人が `/change_password` で変更したら **0 に戻す**。
+
+  **(b) `before_request` での強制リダイレクト**:
+  ```python
+  ALLOWED_WHEN_MUST_CHANGE = {"change_password", "logout", "static", "help_page"}
+  if g.user and g.user.must_change_password and \
+     request.endpoint not in ALLOWED_WHEN_MUST_CHANGE:
+      return redirect(url_for("change_password"))
+  ```
+  除外パス（Codex 第9回で明示）:
+  - `/change_password`（変更画面本体）
+  - `/logout`（諦めてやり直しもできるように）
+  - `/static/*`（CSS が当たらないと UI が崩壊して詰む）
+  - `/help`（操作不明時のリファレンス）
+  これにより本人がパスワードを変えるまで他の画面に進めない。
+
+  **(c) `load_current_user` 拡張**: 既存 SELECT に `must_change_password` 列を追加し、
+  `g.user.must_change_password` で読めるようにする。
+
+  **(d) ヘルプの「必ず変更してください」表記とコードを一致させる**（help.html L37）。
+
+#### V2. 🟠 CSRF 例外時の挙動が UX 破壊
+- 場所: `app.py`（`CSRFProtect(app)` の既定動作）
+- 問題: スマホで長時間放置 → 送信時に CSRF トークン期限切れで素の 400 が出る → 職員から見ると
+  「シフトを出したつもりが消えた」事故になる。
+- 修正方針: **`CSRFProtect` 自体には `error_handler` メソッドは無い**ため、Flask の `errorhandler`
+  デコレータで `CSRFError` を捕捉する（Codex 第9回指摘で訂正、第10回で順序事故を修正）:
+  ```python
+  from flask_wtf.csrf import CSRFError
+
+  @app.errorhandler(CSRFError)
+  def handle_csrf_error(e):
+      session.clear()  # 先にセッションをクリア
+      flash("セッションが切れました。もう一度ログインしてください。")  # flash は session 経由なので clear の後
+      return redirect(url_for("login"))
+  ```
+  **重要**: `flash()` は内部で session に保存するため、`session.clear()` を `flash()` の後に書くと
+  メッセージも消える事故になる（Codex 第10回指摘）。必ず `session.clear()` → `flash()` → `redirect()`
+  の順にすること。
+  ログイン画面に着地させれば、ログイン後に再度シフト入力を促す自然なフローになる。
+  POST されたフォーム内容は復元しない方針（再送信は職員にとっても確認の機会になる）。
+
+#### V3. 🟠 `menu.html:35` の `alert("{{ messages[0] }}")` は JS 文脈で危険
+- 場所: `templates/menu.html:35`
+- 問題: Jinja の HTML エスケープは JS 文字列リテラル内では適切でない。現状の flash 発火元は
+  固定文字列だが、`manage_users` の `flash(f"... ID: {dup[0]} ...")` のように username 値が
+  混ざる経路がすでに存在する（`USERNAME_RE` で記号は制約済だが、テンプレ側でも防御すべき）。
+- 修正方針: `{{ messages[0] | tojson }}` に置換。
+
+#### V4. 🟠 `index.html` の月切替リンクが壊れている（バグ）
+- 場所: `templates/index.html:15-20, 83`
+- 問題: 管理者画面の今月/翌月リンクが `url_for('worker', name=name, ...)` を指している。管理者が
+  翌月を押すと `/worker/<管理者名>` に遷移し worker.html がレンダリングされる UX 不整合。
+  app.py L296 の POST 後リダイレクトは正しく `index` を指しているため、リンク側だけが矛盾。
+- 修正方針: `url_for('worker', ...)` → `url_for('index', ...)` の 3 箇所修正。
+
+#### V5. 🟠 `?submitted=true` がブラウザ更新で再発火（バグ）
+- 場所: `templates/worker.html:104-116`, `templates/index.html:77-89`
+- 問題: POST → 303 → GET `?submitted=true` で confirm を出す現状は、ブラウザ更新で confirm が
+  再表示。ユーザーが「もう一度送信した？」と混乱。
+- 修正方針: confirm の直前か直後に `history.replaceState(null, '', location.pathname)` で
+  クエリを除去。
+
+#### V6. 🟠 admin 初期パスワードがサーバーログに残存する運用リスク
+- 場所: `app.py:155-159` の `print(...)`
+- 問題: `print` の出力は gunicorn / journald / systemd-cat 経由でサーバーログに永続化される。
+  本人が控えても、ログを見られる他者にも漏れる。
+- 修正方針: コードは現状維持で可。README §トラブルシュート と §本番デプロイ に
+  「初期パスワード控えたらログから削除すること」「`ADMIN_INIT_PASSWORD` を環境変数で渡せば
+  ランダム生成のログ出力は出ない」を明記。
+
+#### V7. 🟠 `instance/` / DB ファイルのパーミッションが umask 依存
+- 場所: `app.py:96-100` の `os.makedirs`、`get_db()` の `sqlite3.connect`
+- 問題: 本番サーバーで他ユーザーから読めると、パスワードハッシュ＋備考が流出する。
+- 修正方針: README §本番デプロイ に以下を追記：
+  ```bash
+  install -d -m 700 /var/lib/shift-flow
+  # 起動後に
+  chmod 600 /var/lib/shift-flow/shift.db*
+  ```
+  systemd unit を使う場合は `UMask=0077` の併用も推奨。
+
+#### V8. 🟠 `worker` ルートの認可失敗時にログイン画面へ飛ばす
+- 場所: `app.py:321-322`
+- 問題: 認証済みでも他人の `/worker/<name>` を叩くとログインへリダイレクト。
+  「ログアウトされた？」と混乱を招く。
+- 修正方針: `abort(403)` または `flash("自分のシフト入力画面以外にはアクセスできません")` →
+  `redirect(url_for("menu"))`。
+
+#### V19. 🟠 ユーザー削除が不可逆＋シフト履歴も即削除（Codex 第8回、第9回で決め打ち）
+- 場所: `app.py:466-487`（`action == "delete"` 分岐）, `manage_users.html` の「削除」ボタン
+- 問題: 「削除」ボタンを押すと `DELETE FROM shifts WHERE name=?` で過去シフト履歴も同時消失。
+  初心者の誤操作で**取り返しのつかないデータ消失事故**になり得る。「停止」と「削除」が
+  並んでいて誤クリックも誘発しやすい。
+- 修正方針（Codex 第9回で決め打ち）: **試用初期は「削除」ボタンを `manage_users.html` から
+  完全に撤去する**。サーバー側 `action == "delete"` ハンドラも、ボタン経由では呼ばれないが
+  念のため `flash("削除は管理操作で行ってください。停止で十分なケースが大半です。")` で弾く。
+  - 停止（`is_active=0`）で十分なケースが大半。ヘルプにも「退職時は停止、削除は使わない」を明記。
+  - 物理削除が必要な場合は **バックアップ取得後の管理 CLI 操作**（`sqlite3 shift.db
+    "DELETE FROM ..."`）に限定する運用に寄せる。README §トラブルシュート に手順を追記。
+  - フェーズ3 で監査ログ（§4④）と確定シフト機能が入った後、改めて UI 上の削除フローを設計する
+    （その時点では「削除依頼 → 監査ログ → バックアップ → 物理削除」の多段プロセス化を想定）。
+
+#### V20. 🟠 修正フォームの username が編集可能で新規ユーザー誤作成（Codex 第8回）
+- 場所: `templates/manage_users.html:22`（`<input type="text" name="username" id="f_id" required>`）,
+  `app.py:368`（`existing = ... WHERE username=?` 判定）
+- 問題: 「修正」ボタンで `fillForm` が動き ID 欄に既存 username をセットするが、**ID 欄は
+  readonly でない**ため、ユーザーが ID を書き換えると `existing` 判定が外れて新規ユーザーが
+  作成される。「太郎の表示名と色を修正したつもり」が「太郎は別人に上書き、自分は新規 username
+  で作成」になり混乱。
+- 修正方針（Codex 第9回で具体化）:
+  1. **UI 側**: 修正モードのときだけ username 欄を `readonly` にする
+     （`fillForm` 内で `f_id.readOnly = true` + 視覚的に薄い背景色、新規モードでは false に戻す）。
+  2. **フォームに `mode` を明示**: 隠しフィールド `<input type="hidden" name="mode" value="create">`
+     を持ち、修正ボタン押下時に `value="edit"` + 隠しフィールド `original_username` に現 ID を保持。
+     送信時は `mode` を必ず読み、`mode=edit` なら username は `original_username` 由来に固定して
+     フォーム上の username 入力値は無視する（DB 検索キーが書き換わらないことを保証）。
+  3. **サーバー側の二重防御**: `mode=edit` で `original_username` と存在ユーザーが一致しなければ
+     `flash("ID 変更は禁止です。停止 → 削除 → 新規登録の手順で行ってください。")` で弾く。
+     `mode=create` で existing が見つかった場合も「重複登録」として弾く。
+  4. ID 変更の根本対応は §0 J（`user_id` 化）でフェーズ3 に解消。
+
+### 10.3 試用前推奨（6件）
+
+#### V9. 🟡 セキュリティヘッダ最低限
+- 場所: `app.py` 全体（`@app.after_request` 未実装）
+- 問題: `X-Frame-Options` / `X-Content-Type-Options` / `Referrer-Policy` 無し。
+  クリックジャッキング・MIME sniffing の最低限の防御がない。
+- 修正方針: 軽量な `@app.after_request` で
+  ```
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: same-origin
+  ```
+  を付与。Flask-Talisman を入れずに 5 行で済む。CSP は inline `onclick` 撤廃後（フェーズ2 後半）で良い。
+
+#### V10. 🟡 README に `-w 1` 推奨理由を 1 行補足
+- 場所: `README.md:38`
+- 問題: `gunicorn -w 1` の理由が散在していて初心者には繋がりが見えない。
+- 修正方針: 「memory ストレージのレート制限を共有するため、複数 worker は Redis 設定後にだけ有効」
+  を 1 行追記。
+
+#### V11. 🟡 `session["role"]/["name"]` の格納は事実上のデッドコード
+- 場所: `app.py:254-255`
+- 問題: `load_current_user`（L204）は `session["username"]` だけ読む。role/name は格納のみで未使用。
+  テンプレで `session.role` を参照する誤った修正が将来混入したとき、Q（停止/降格の即時反映）が
+  破れる温床。
+- 修正方針: L254-255 を削除し、session には `username` だけ入れる。整理目的、リグレッション無し。
+
+#### V21. 🟡 CODE_REVIEW.md の状態が混在（Codex 第8回）
+- 場所: `CODE_REVIEW.md`（冒頭警告文と §8 受け入れチェックボックス）
+- 問題: 「試用開始可能」（v5.0）と「現状のまま公開しないで」（v1）が混在し、§8 受け入れテストの
+  チェックボックスも未チェックのまま残っている。**運用判断に使う文書として誤解の元**になる。
+- 修正方針: 本 v5.2 で対応済み:
+  1. 冒頭の警告ブロックを「過去の結論（v1 時点、参考のため保存）」と明示
+  2. 「現在のステータス（v5.2 時点）」ブロックを冒頭に追加し、フェーズ2.5 未着手を明記
+  3. §8 受け入れテストのチェックボックスをフェーズ1/2 実装済項目で ✅ 化（後続のセクションで実施）
+
+#### V22. 🟡 自動テストがリポジトリ内に無い（Codex 第8回）
+- 場所: リポジトリ全体（`tests/` ディレクトリ無し）
+- 問題: §9 で「自動テスト 33 件＋4プロセス並行性検証 通過」と記録されているが、テストファイル本体は
+  `/tmp` で実行して破棄しており、リポジトリには残っていない。**今後の修正で同じ検証ができず、
+  リグレッションが入っても気付けない**。
+- 修正方針: `tests/` ディレクトリを作り、`pytest` ベースで以下を移植・整備:
+  - `tests/conftest.py` — 一時 DB / `APP_ENV` / `SECRET_KEY` 等のフィクスチャ
+  - `tests/test_auth.py` — ログイン、CSRF、レート制限、停止/降格セッション無効化（§8 必修）
+  - `tests/test_manage_users.py` — 自己降格保護・最後 admin 保護・表示名重複・禁止文字
+  - `tests/test_shift_input.py` — シフト POST、入力検証
+  - `tests/test_db.py` — WAL PRAGMA、並行書き込み、`sqlite3 .backup` 検証
+  - `tests/test_config.py` — `TRUSTED_PROXY_HOPS` fail-fast、`SHIFT_DB_PATH` 必須化
+  - `requirements-dev.txt` に `pytest`, `pytest-flask` を追加（`requirements.txt` 本体は据え置き）
+  - `README.md` に `pytest` 実行手順を追記
+  - CI（GitHub Actions）も追加（試用後でよいが、最初の `pytest` 実行手順だけは試用前に）
+
+#### V24. 🟡 README のコマンドが `python` 前提（Codex 第8回）
+- 場所: `README.md:12`（`python app.py`）
+- 問題: macOS / 多くの Linux 環境では `python` コマンドが無く `python3` のみ。
+  初心者が `python: command not found` で詰まる。
+- 修正方針: `README.md` のコマンド例を `python3 app.py` に変更し、Windows 想定の
+  `python app.py` も併記。`pip` も同様に `python3 -m pip install -r requirements.txt`
+  を推奨形にする。
+
+### 10.4 試用後でよい（既知・記録済を含む 8件）
+
+| # | 項目 | 状態 |
+|---|------|------|
+| V12 | inline `onclick` 撤廃（worker.html / index.html 備考モーダル） | §7 フェーズ2 後半で予定済 |
+| V13 | パスワードルール強化（記号許可、長さ 8+） | 既知。試用後で可 |
+| V14 | 500/404/403 のカスタムエラーページ | 既知。試用後で可 |
+| V15 | `change_password.html` に flash 表示なし | 機能上は OK、cosmetic |
+| V16 | `safe_ym` の URL 改変時の無音フォールバック | 影響軽微 |
+| V17 | `/login` GET のレート制限なし | 実害薄、IP 単位制限あり |
+| V18 | `shifts.name` 連動の根本解消 | §0 J / §4① で `user_id` 化として記録済（フェーズ3） |
+| V25 | `index.html` と `worker.html` のテンプレ重複解消（Codex 第8回） | 共通テンプレ化＋ Jinja `include` で 80 行 → 50 行程度に圧縮可。V4 で月リンク修正後にやると影響範囲が小さい。フェーズ2 後半に予定 |
+
+### 10.5 不要なコード・機能の所見
+
+明確な死コードはほぼ無し（フェーズ2 で `templates/result.html` と起動時 DELETE は撤去済）。
+強いて挙げれば V11 の `session["role"]/["name"]` 格納が機能上未使用なため整理対象。
+app.py 543 行＋テンプレ 8 ファイルに対して過剰な抽象化・冗長処理は見られず、保守性は良好。
+
+### 10.6 動作確認の現状と未検証項目
+
+**v5.0 までに自動テスト＋実機検証で確認済**:
+- 認可（職員 /admin 403、停止職員旧セッション無効化、降格 admin の旧セッション無効化）
+- パスワードハッシュ化と HTML 非出力
+- CSRF 400 拒否 / レート制限 429
+- WAL モードと 4 プロセス × 50 並行書き込み（locked 0 件）
+- `sqlite3 .backup` で WAL 未反映分も復元（vs `cp` で空）
+- 管理者の自己降格禁止 / 最後 admin 保護 / 表示名重複拒否 / 禁止文字拒否
+- ProxyFix の正常動作と不正値 fail-fast
+
+**v5.1 修正後に追加で確認すべき項目**:
+- V1: 未ログインで POST `/change_password` → 302（または 401）
+- V2: CSRF トークン無し / 期限切れ POST → カスタムページ表示、UX 親切
+- V4: 管理者ログイン → `/?year=2026&month=7` → admin ではなく index.html が表示
+- V5: シフト送信後 confirm を「いいえ」→ ブラウザバックで `?submitted=true` が残らない
+- V9: 全レスポンスのヘッダに `X-Frame-Options: DENY` 等が含まれる
+- V11: テンプレが `current_user.*` のみで描画される（session ローカル参照ゼロ）
+- V19: 「削除」ボタンが `manage_users.html` から消えていること、サーバー側でも `action=delete` が拒否されること
+- V20: 修正モードで username 欄が readonly、ID 改変送信時のサーバー側拒否
+- V23: 新規ユーザーが初回ログイン後、強制的に `/change_password` へ誘導される
+- 実機: スマホでログイン → 30 分放置 → 送信 → CSRF エラーで親切な画面に着地
+
+**Codex 第8回（v5.2）の実機確認**:
+Codex はリポジトリの現状で以下を一時 DB 上で確認済（編集なし、すべて緑）:
+- `python3 -m py_compile app.py` 成功
+- CSRF なし POST → 400
+- ログイン成功 → 302（メニュー）
+- 管理画面 HTML に平文パスワード非出力
+- 職員の `/admin` → 403
+- 停止済み旧セッションで `/menu` → ログインへリダイレクト
+- `GET /admin?month=13` → 500 にならず 200 復帰
+- `/login` 失敗 11 回目で 429
+- 本番 `SECRET_KEY` 未設定 → 起動失敗
+- 本番 `SHIFT_DB_PATH` 相対 → 起動失敗
+
+これによりフェーズ1/2 の主要スモークは「v5.2 時点で再現確認済み」と裏付けられた。
+
+### 10.7 推奨される修正ブランチの切り方（v5.3 で更新）
+
+§7.1 のスケジュールと整合する形で、以下の **2 ブランチ分割**を推奨:
+
+- **Week 1**: `feature/phase2.5-security-and-safety` — 必修のうちセキュリティ・運用事故防止系
+  - V1 — `change_password` をログイン済み専用
+  - V2 — CSRF エラーハンドラ
+  - V19 — ユーザー削除ボタン撤去
+  - V20 — username readonly + `mode/original_username` 防御
+  - V23 — `must_change_password` 強制リダイレクト + DB マイグレーション
+  → 試用開始の最低ライン。
+
+- **Week 2**: `feature/phase2.5-ux-and-docs` — 残り必修と推奨をまとめて
+  - V3, V4, V5, V8 — UI バグ / XSS パターン / 認可遷移
+  - V6, V7, V10, V24 — README 補強
+  - V9 — セキュリティヘッダ
+  - V11 — `session["role"]/["name"]` 削除
+  - V21 — 本書の状態整理（v5.2 で対応中）
+  - V22 — `tests/` pytest 整備（このブランチか、Week 2 末の独立ブランチ）
+
+- **代替案**: 単一ブランチ `feature/phase2.5-pre-trial-final` で必修 11 件 + 推奨 6 件を一括 PR。
+  PR レビューと検証は重くなるが、`tests/` 整備で同時に検証できる利点あり。
+  着手時にユーザーの判断で選択。
+
+### 10.8 修正対象ファイル（参考）
+
+| Finding | 変更ファイル |
+|---------|--------------|
+| V1 (change_password) | `app.py`, `templates/change_password.html`, `templates/login.html` (リンク撤去) |
+| V2 (CSRF handler) | `app.py`（`from flask_wtf.csrf import CSRFError` + `@app.errorhandler(CSRFError)` 追加） |
+| V3 (alert tojson) | `templates/menu.html` |
+| V4 (月切替リンク) | `templates/index.html`（3 箇所） |
+| V5 (submitted 除去) | `templates/worker.html`, `templates/index.html`（同 JS パターン） |
+| V6 (ログ運用) | `README.md` |
+| V7 (パーミッション) | `README.md` |
+| V8 (worker 403) | `app.py` |
+| V9 (ヘッダ) | `app.py`（`@app.after_request` 追加） |
+| V10 (`-w 1` 解説) | `README.md` |
+| V11 (session 整理) | `app.py`（L254-255 削除のみ） |
