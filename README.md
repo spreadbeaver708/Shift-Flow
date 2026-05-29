@@ -1,73 +1,73 @@
 # Shift-Flow
 
-スタッフがスマホからシフト希望を入力し、管理者が確認・調整できる Flask 製アプリ。
-
-> 設計とセキュリティ対策の経緯は [CODE_REVIEW.md](CODE_REVIEW.md) を参照。
+カウンセリングルームのシフト希望をスマホから集めて、管理者が確認・調整する Flask 製アプリ。
+設計と安全対策の経緯は [CODE_REVIEW.md](CODE_REVIEW.md) を参照。
 
 ---
 
-## ローカルで動かす
+## 試用開始までの流れ（半日）
+
+| 手順 | 内容 | 所要時間 |
+|------|------|---------|
+| 1. ローカルで動作確認 | `pip install` → `python3 app.py` で起動できることを確認 | 5 分 |
+| 2. 本番サーバー準備 | 環境変数・DB フォルダ・gunicorn 起動・HTTPS 設定 | 30 分 |
+| 3. 動作確認 + バックアップ復元演習 | 実機（PC・スマホ）でひととおり触る | 30 分 |
+| 4. 関係者へ共有 | `/help` ページを職員に案内・ID を配布 | 5 分 |
+| 5. 試用開始 | 3〜5 名で 1 か月運用 | — |
+
+以下、各手順を順に説明します。
+
+---
+
+## 1. ローカルで動作確認（5 分）
 
 ```bash
 python3 -m pip install -r requirements.txt
 python3 app.py
 ```
 
-> Windows で `python3` が無い場合は `python` でも可。
-> 以降の例も `python3` で書いていますが、適宜読み替えてください。
+ブラウザで http://localhost:5000 を開き、コンソールに表示された `admin` の初期パスワードでログインします。初回ログインは自動でパスワード変更画面に移動するので、新しいパスワードを設定してください（変更するまで他の画面には進めません）。
 
-ブラウザで http://localhost:5000 を開く。
-初回起動時、`admin` の初期パスワードがコンソールに表示される（控えておくこと）。
-初回ログイン時はパスワード変更画面に自動的に誘導される（変更まで他の画面に進めない）。
+> Windows などで `python3` が無い場合は `python` でも動きます。
 
 ---
 
-## 本番デプロイ（HTTPS 必須）
+## 2. 本番サーバー準備（30 分）
 
-### 1. 環境変数を設定
+### 2.1 環境変数を設定
 
 ```bash
 export APP_ENV=production
 export SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
 export SHIFT_DB_PATH=/var/lib/shift-flow/shift.db
 export ADMIN_INIT_PASSWORD=（長いランダム文字列）
-
-# Caddy / Nginx の後ろで動かす場合は追加
+# Caddy / Nginx の後ろで動かす場合だけ
 export TRUSTED_PROXY_HOPS=1
 ```
 
-> **`ADMIN_INIT_PASSWORD` を環境変数で渡せばランダム生成のログ出力は出ません**（V6）。
-> 環境変数で渡さずランダム生成された場合は、ログを 1 度だけ控えたら必ず
-> `journalctl --vacuum-time=…` や該当ログファイル削除でログから消去してください。
+`ADMIN_INIT_PASSWORD` を渡しておけば、起動ログにパスワードが書かれなくなります。
 
-### 2. データディレクトリのパーミッションを設定（V7）
-
-DB ファイルにはパスワードハッシュ + 備考が含まれます。他ユーザーから読めない設定が必須。
+### 2.2 DB 用フォルダを作る
 
 ```bash
-# 起動前に
 sudo install -d -m 700 -o $(whoami) /var/lib/shift-flow
-
-# 起動後（DB ファイルが作られたら）
-chmod 600 /var/lib/shift-flow/shift.db*
 ```
 
-systemd unit を使う場合は `UMask=0077` を `[Service]` セクションに併記推奨。
+DB にはパスワードハッシュと備考が入るので、他ユーザーから読めない設定が必須です。
 
-### 3. gunicorn で起動
+### 2.3 gunicorn で起動
 
 ```bash
 gunicorn -w 1 -b 127.0.0.1:8000 app:app
+# 起動後に 1 回だけ
+chmod 600 /var/lib/shift-flow/shift.db*
 ```
 
-> **`-w 1` を推奨する理由**（V10）: レート制限のカウンタは既定の `memory://` ストレージだと
-> worker ごとに別カウンタになり、`-w 4` だと 1 分 10 回制限が実質 1 分 40 回になります。
-> worker を増やしたい場合は `RATELIMIT_STORAGE_URI=redis://...` を設定してください
-> （別途 `pip install redis` が必要）。
+> `-w 1` を推奨する理由：レート制限のカウンタが worker ごとに別になるため、`-w 4` だと 1 分 10 回制限が実質 1 分 40 回になります。worker を増やしたい場合は `RATELIMIT_STORAGE_URI=redis://...` を設定してください（別途 `pip install redis`）。
 >
-> `app.run` や `python3 app.py` での本番起動は禁止。`APP_ENV=production` で例外停止します。
+> `python3 app.py` での本番起動は `APP_ENV=production` で例外停止します。
 
-### 4. HTTPS で公開
+### 2.4 HTTPS で公開
 
 **Caddy の例**：
 ```caddyfile
@@ -76,102 +76,101 @@ shift.example.com {
 }
 ```
 
-**PaaS（Render / Railway / Fly.io）** なら自動 HTTPS が付く。
+PaaS（Render / Railway / Fly.io）なら自動で HTTPS が付きます。
 
 ---
 
-## 環境変数一覧
+## 3. 動作確認 + バックアップ復元演習（30 分）
 
-| 変数 | 既定 | 説明 |
-|------|------|------|
-| `SECRET_KEY` | （本番必須） | セッション署名鍵。未設定なら本番起動失敗 |
-| `APP_ENV` | `development` | 本番は `production` を指定 |
-| `SHIFT_DB_PATH` | `instance/shift.db` | DB ファイルの場所。**本番は絶対パス必須** |
-| `ADMIN_INIT_PASSWORD` | （ランダム生成） | 初回起動時の admin パスワード。設定すればログ出力なし |
-| `TRUSTED_PROXY_HOPS` | `0` | リバプロ段数。Caddy/Nginx 経由なら `1`、直接公開なら `0` |
-| `RATELIMIT_STORAGE_URI` | `memory://` | worker 複数なら `redis://localhost:6379/0`（要 `pip install redis`） |
+### 3.1 実機での目視チェック
+PC とスマホでログイン → シフト入力 → 備考 → 送信完了の確認まで通しで触ってください。職員アカウントを 1 つ作り、その目線でも同じ流れを確認します。
 
----
-
-## バックアップ
-
-WAL モード稼働中は **必ず** `sqlite3 .backup` を使う。`cp shift.db` は壊れたバックアップになる。
+### 3.2 バックアップ復元演習
 
 ```bash
-sqlite3 /var/lib/shift-flow/shift.db ".backup '/path/to/backup-$(date +%F).db'"
-```
+# 1. バックアップ取得（WAL モードのため cp ではなく .backup を使う）
+sqlite3 /var/lib/shift-flow/shift.db ".backup '/tmp/test.db'"
 
-cron で日次実行を推奨。バックアップファイル自体も `chmod 600` で保護。
+# 2. サービス停止 → 本物を退避 → バックアップを所定位置に
+sudo systemctl stop shift-flow
+mv /var/lib/shift-flow/shift.db* /tmp/keep/
+cp /tmp/test.db /var/lib/shift-flow/shift.db
 
-### 復元
-
-サービス停止 → 既存の `shift.db` / `shift.db-wal` / `shift.db-shm` を削除 → バックアップを `SHIFT_DB_PATH` の位置に配置 → サービス起動。
-
----
-
-## ユーザーの完全削除（管理 CLI 経由）
-
-UI からの削除ボタンは試用初期は撤去しています（誤操作による不可逆事故の防止）。退職や休職は
-「停止」で十分です（ログインできなくなり、シフト履歴は残ります）。
-
-どうしても物理削除が必要な場合のみ、以下の手順で行ってください：
-
-```bash
-# 1. サービス停止
-sudo systemctl stop shift-flow   # 環境に応じて
-
-# 2. バックアップ
-sqlite3 /var/lib/shift-flow/shift.db ".backup '/path/to/backup-pre-delete.db'"
-
-# 3. 対象ユーザーのシフト履歴と本体を削除
-sqlite3 /var/lib/shift-flow/shift.db \
-  "DELETE FROM shifts WHERE name=(SELECT name FROM users WHERE username='対象ID'); \
-   DELETE FROM users WHERE username='対象ID';"
-
-# 4. サービス再開
+# 3. サービス起動 → ログイン確認 → 確認できたら本物を戻す
 sudo systemctl start shift-flow
 ```
 
----
-
-## 旧 DB（Phase 1 以前）から移行
-
-平文パスワードが残った旧 DB はそのままだとログイン不能。一度 admin を作り直す：
-
-```bash
-cp shift.db shift.db.legacy.backup
-sqlite3 shift.db "DELETE FROM users WHERE username='admin';"
-
-export ADMIN_INIT_PASSWORD=（新しい長いランダム文字列）
-# 通常通り起動 → admin でログインし /manage_users から職員を再登録
-```
-
-職員のシフト履歴は表示名で紐づくので、再登録時に **旧と同じ表示名** を使えば残る。
+本番運用では cron で日次バックアップを取り、バックアップファイル自体も `chmod 600` で保護してください。
 
 ---
 
-## テストの実行
+## 4. 関係者へ共有（5 分）
 
-開発用依存をインストール後、`pytest` を実行：
+- ログイン後の `/help` ページを各職員に見てもらいます
+- 管理者は新規ユーザー追加 → 一時パスワードを本人に渡す → 本人が初回ログインで再設定、という流れになります
+
+---
+
+## 5. 試用開始
+
+社内 3〜5 名で 1 か月。毎週ログとバックアップを確認し、フィードバックを記録してください。
+
+---
+
+## リファレンス
+
+### 環境変数一覧
+
+| 変数 | 既定 | 説明 |
+|------|------|------|
+| `APP_ENV` | `development` | 本番は `production` |
+| `SECRET_KEY` | — | セッション署名鍵。本番では必須 |
+| `SHIFT_DB_PATH` | `instance/shift.db` | DB ファイルの場所。本番は絶対パス必須 |
+| `ADMIN_INIT_PASSWORD` | ランダム生成 | 初回起動時の admin パスワード |
+| `TRUSTED_PROXY_HOPS` | `0` | リバプロ段数。Caddy/Nginx 経由なら `1` |
+| `RATELIMIT_STORAGE_URI` | `memory://` | 複数 worker なら `redis://...`（要 `pip install redis`） |
+
+### トラブルシュート
+
+| 症状 | 対処 |
+|------|------|
+| `SECRET_KEY が未設定です` で起動失敗 | `export SECRET_KEY=...` を設定 |
+| admin の初期パスワードを失った | 下の「旧 DB から移行」手順で作り直す |
+| ログイン時に 429 が返る | レート制限（1 分 10 回）。1 分待つ |
+| `TRUSTED_PROXY_HOPS は非負整数...` で停止 | 値を `0` か `1` に修正 |
+| `'redis' prerequisite not available` | `pip install redis` |
+| 職員に「全体のシフト確認」が出ない | 仕様（フェーズ3 で開放予定） |
+| パスワード変更画面から他画面に進めない | 強制変更中。新しいパスワードを設定すれば解除 |
+
+### テストを動かす
 
 ```bash
 python3 -m pip install -r requirements-dev.txt
 python3 -m pytest
 ```
 
-`tests/` 配下にユニットテスト一式があります。
+### ユーザー完全削除（管理 CLI）
 
----
+UI に削除ボタンは置いていません（誤操作による不可逆事故の防止）。退職や休職は「停止」で十分です。どうしても物理削除が必要な場合のみ：
 
-## トラブルシュート
+```bash
+sudo systemctl stop shift-flow
+sqlite3 /var/lib/shift-flow/shift.db ".backup '/path/to/backup-pre-delete.db'"
+sqlite3 /var/lib/shift-flow/shift.db \
+  "DELETE FROM shifts WHERE name=(SELECT name FROM users WHERE username='対象ID'); \
+   DELETE FROM users WHERE username='対象ID';"
+sudo systemctl start shift-flow
+```
 
-| 症状 | 対処 |
-|------|------|
-| `SECRET_KEY が未設定です` で起動失敗 | `export SECRET_KEY=...` を設定 |
-| admin の初期パスワードが分からない | 起動ログを確認。失った場合は上記「旧 DB から移行」と同じ手順 |
-| ログインで 429 が返る | レート制限（1分10回）。1分待つ |
-| `TRUSTED_PROXY_HOPS は非負整数...` で停止 | 値を `0` か `1` に修正 |
-| `'redis' prerequisite not available` | `pip install redis` |
-| 職員に「全体のシフト確認」が出ない | 仕様。フェーズ3 で確定シフトを実装後に開放予定 |
-| パスワード変更画面から他画面に進めない | `must_change_password` 強制中。新しいパスワードを設定すれば解除されます |
-| 送信後にブラウザ更新で「翌月分も提出しますか？」が再表示 | 修正済（V5）。再発時は強制リロード（Cmd/Ctrl+Shift+R）|
+### 旧 DB（Phase 1 以前）から移行
+
+平文パスワードが残った旧 DB はそのままだとログイン不能です。admin を作り直してください：
+
+```bash
+cp shift.db shift.db.legacy.backup
+sqlite3 shift.db "DELETE FROM users WHERE username='admin';"
+export ADMIN_INIT_PASSWORD=（新しい長いランダム文字列）
+# 起動 → admin でログイン → /manage_users から職員を再登録
+```
+
+シフト履歴は表示名で紐づくので、再登録時に旧と同じ表示名を使えば残ります。
