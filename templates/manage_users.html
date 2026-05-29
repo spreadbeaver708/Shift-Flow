@@ -19,15 +19,22 @@
             <form method="post" id="user-form">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="action" value="add">
+                {# V20: mode と original_username を hidden で保持し、編集対象 ID をサーバで権威化 #}
+                <input type="hidden" name="mode" id="f_mode" value="create">
+                <input type="hidden" name="original_username" id="f_original_username" value="">
                 <label>ユーザーID</label><input type="text" name="username" id="f_id" required>
-                <label>パスワード <span style="font-size:0.75rem; color:#888;">（修正時は空欄で変更なし）</span></label>
+                <label>パスワード <span style="font-size:0.75rem; color:#888;">（修正時は空欄で変更なし／入力すると本人は次回ログイン時に再変更を求められます）</span></label>
                 <input type="password" name="password" id="f_pass" autocomplete="new-password">
                 <label>お名前</label><input type="text" name="name" id="f_name" required>
                 <div style="display:flex; gap:20px; align-items:center; margin:10px 0;">
                     <div>色設定：<input type="color" name="color" id="f_color" value="#e8f5e9" style="width:60px; height:35px;"></div>
                     <div style="flex-grow:1;">権限：<select name="role" id="f_role"><option value="worker">職員</option><option value="admin">管理者</option></select></div>
                 </div>
-                <button type="submit" id="submit-btn" class="menu-btn btn-manage" style="width:100%; border:none;">登録 / 修正保存</button>
+                <button type="submit" id="submit-btn" class="menu-btn btn-manage" style="width:100%; border:none;">登録</button>
+                <button type="button" id="reset-btn" class="btn-month"
+                        style="width:100%; margin-top:8px; background:#9E9E9E; display:none;">
+                    新規登録モードに戻る
+                </button>
             </form>
         </div>
 
@@ -50,32 +57,58 @@
                         <input type="hidden" name="current_status" value="{{ user[3] }}">
                         <button type="submit" class="btn-month" style="padding:5px 8px; font-size:0.75rem; background:{{ '#FF5722' if user[3]==1 else '#2196F3' }};">{{ '停止' if user[3]==1 else '復活' }}</button>
                     </form>
-                    <form method="post" style="display:inline;" onsubmit="return confirm('本当に削除しますか？');">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                        <input type="hidden" name="action" value="delete">
-                        <input type="hidden" name="username" value="{{ user[0] }}">
-                        <button type="submit" class="btn-month" style="padding:5px 8px; font-size:0.75rem; background:#666;">削除</button>
-                    </form>
+                    {# V19: 「削除」ボタンは撤去。退職等は「停止」で十分。物理削除は管理 CLI 経由 #}
                     {% else %}<span style="color:#bbb; font-size:0.7rem;">(保護)</span>{% endif %}
                 </td>
             </tr>
             {% endfor %}
         </table>
+
+        <p style="color:#888; font-size:0.8rem; margin-top:20px; line-height:1.6;">
+            退職や休職は「停止」で十分です。完全削除はバックアップを取った上で管理者が
+            <code>sqlite3</code> で行う運用にしています（取り返しがつかない事故を防ぐため）。
+        </p>
     </div>
     <script>
     // A: 編集時にパスワードはサーバから送らない。data-* 属性で値を渡し、パスワード欄は空欄。
+    // V20: 編集モードでは f_id を readonly にし、mode/original_username を hidden に書き込む。
+    var fId   = document.getElementById('f_id');
+    var fMode = document.getElementById('f_mode');
+    var fOrig = document.getElementById('f_original_username');
+    var submitBtn = document.getElementById('submit-btn');
+    var resetBtn  = document.getElementById('reset-btn');
+
+    function enterEditMode(d) {
+        fMode.value = 'edit';
+        fOrig.value = d.username;
+        fId.value = d.username;
+        fId.readOnly = true;
+        fId.style.background = '#eee';
+        document.getElementById('f_name').value  = d.name;
+        document.getElementById('f_role').value  = d.role;
+        document.getElementById('f_color').value = d.color;
+        document.getElementById('f_pass').value  = '';
+        submitBtn.innerText = '修正内容を保存';
+        resetBtn.style.display = 'block';
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+    function resetToCreateMode() {
+        fMode.value = 'create';
+        fOrig.value = '';
+        fId.readOnly = false;
+        fId.style.background = '';
+        fId.value = '';
+        document.getElementById('f_name').value  = '';
+        document.getElementById('f_role').value  = 'worker';
+        document.getElementById('f_color').value = '#e8f5e9';
+        document.getElementById('f_pass').value  = '';
+        submitBtn.innerText = '登録';
+        resetBtn.style.display = 'none';
+    }
     document.querySelectorAll('.btn-edit').forEach(function(btn) {
-        btn.addEventListener('click', function(e) {
-            var d = e.currentTarget.dataset;
-            document.getElementById('f_id').value    = d.username;
-            document.getElementById('f_name').value  = d.name;
-            document.getElementById('f_role').value  = d.role;
-            document.getElementById('f_color').value = d.color;
-            document.getElementById('f_pass').value  = '';  // 編集時は空欄＝据え置き
-            document.getElementById('submit-btn').innerText = '修正内容を保存';
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-        });
+        btn.addEventListener('click', function(e) { enterEditMode(e.currentTarget.dataset); });
     });
+    resetBtn.addEventListener('click', resetToCreateMode);
     </script>
 </body>
 </html>

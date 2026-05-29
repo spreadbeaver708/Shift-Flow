@@ -11,12 +11,13 @@
     <h1>{{ name }} のシフト提出</h1>
     <a href="{{ url_for('menu') }}" class="btn-back">← メニューに戻る</a>
 
+    {# V4: 管理者の月切替は admin 用の index ルートへ #}
     <div style="display: flex; gap: 8px; margin-bottom: 20px; justify-content: center;">
-        <a href="{{ url_for('worker', name=name, year=now_y, month=now_m) }}" 
-           class="btn-month {% if year==now_y and month==now_m %}active-month{% endif %}" 
+        <a href="{{ url_for('index', year=now_y, month=now_m) }}"
+           class="btn-month {% if year==now_y and month==now_m %}active-month{% endif %}"
            style="background: var(--entry); border-bottom-color: #388E3C;">今月 ({{ now_m }}月)</a>
-        <a href="{{ url_for('worker', name=name, year=next_y, month=next_m) }}" 
-           class="btn-month {% if year==next_y and month==next_m %}active-month{% endif %}" 
+        <a href="{{ url_for('index', year=next_y, month=next_m) }}"
+           class="btn-month {% if year==next_y and month==next_m %}active-month{% endif %}"
            style="background: var(--confirm); border-bottom-color: #E68A00;">翌月 ({{ next_m }}月)</a>
     </div>
 
@@ -74,13 +75,14 @@
         document.getElementById('remarkModal').style.display = 'none';
     }
 
-    /* ★修正箇所：送信後の確認ポップアップ */
+    /* 送信後の確認ポップアップ */
     const params = new URLSearchParams(window.location.search);
     if (params.get('submitted') === 'true') {
-        // メッセージを指示通りの内容に変更し、alert("送信完了しました") を完全に削除
+        // V5: クエリを URL から除去（ブラウザ更新で confirm が再発火する事故を防ぐ）
+        history.replaceState(null, '', location.pathname);
         if (confirm("送信されました。このまま翌月分も提出しますか？")) {
-            // 「はい」：翌月の入力画面へ
-            location.href = "{{ url_for('worker', name=name, year=next_y, month=next_m) }}";
+            // V4: 管理者の「はい」は admin 用の index ルートへ
+            location.href = "{{ url_for('index', year=next_y, month=next_m) }}";
         } else {
             // 「いいえ」：メニュー画面へ
             location.href = "{{ url_for('menu') }}";
