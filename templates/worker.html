@@ -102,10 +102,11 @@
             document.getElementById('remarkModal').style.display = 'none';
         }
 
-        /* ★修正箇所：送信後の確認ポップアップ */
+        /* 送信後の確認ポップアップ */
         const params = new URLSearchParams(window.location.search);
         if (params.get('submitted') === 'true') {
-            // メッセージを指示通りの内容に変更し、alert("送信完了しました") を完全に削除
+            // V5: クエリを URL から除去（ブラウザ更新で confirm が再発火する事故を防ぐ）
+            history.replaceState(null, '', location.pathname);
             if (confirm("送信されました。このまま翌月分も提出しますか？")) {
                 // 「はい」：翌月の入力画面へ
                 location.href = "{{ url_for('worker', name=name, year=next_y, month=next_m) }}";

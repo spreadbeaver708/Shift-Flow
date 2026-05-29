@@ -12,6 +12,7 @@ from flask import (
     session, flash, g, abort,
 )
 from flask_wtf import CSRFProtect
+from flask_wtf.csrf import CSRFError
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -134,6 +135,13 @@ def init_db():
             "name TEXT, is_active INTEGER DEFAULT 1, color TEXT DEFAULT '#e8f5e9')"
         )
 
+        # V23: must_change_password 列を冪等に追加（既存 DB / 新規 DB どちらでも安全）
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(users)").fetchall()]
+        if "must_change_password" not in cols:
+            conn.execute(
+                "ALTER TABLE users ADD COLUMN must_change_password INTEGER DEFAULT 0"
+            )
+
         # C: 旧版の固定初期パスワードを排除。admin が存在しない場合のみ作成。
         # Codex#2: gunicorn -w N で複数 worker が同時に起動した場合の競合を防ぐため
         #   1) INSERT OR IGNORE で冪等にする（UNIQUE 違反は無視）
@@ -147,8 +155,8 @@ def init_db():
                 is_random = True
             cur = conn.execute(
                 "INSERT OR IGNORE INTO users "
-                "(username, password, role, name, is_active, color) "
-                "VALUES (?, ?, ?, ?, 1, ?)",
+                "(username, password, role, name, is_active, color, must_change_password) "
+                "VALUES (?, ?, ?, ?, 1, ?, 1)",
                 ("admin", generate_password_hash(init_pw), "admin", "管理者", "#2196F3"),
             )
             if cur.rowcount > 0 and is_random:
@@ -209,19 +217,58 @@ def load_current_user():
         return
     with closing(get_db()) as conn:
         row = conn.execute(
-            "SELECT username, role, name, is_active FROM users WHERE username=?", (u,)
+            "SELECT username, role, name, is_active, must_change_password "
+            "FROM users WHERE username=?",
+            (u,),
         ).fetchone()
     if not row or row[3] == 0:
         # 削除または停止済み → 旧セッションを破棄
         session.clear()
         return
-    g.user = SimpleNamespace(username=row[0], role=row[1], name=row[2])
+    g.user = SimpleNamespace(
+        username=row[0], role=row[1], name=row[2],
+        must_change_password=bool(row[4]),
+    )
+
+
+# V23: 初回ログインや管理者リセット後は、パスワード変更まで他画面に進めない
+ALLOWED_WHEN_MUST_CHANGE = {"change_password", "logout", "static", "help_page"}
+
+
+@app.before_request
+def force_password_change():
+    if (
+        g.user
+        and g.user.must_change_password
+        and request.endpoint not in ALLOWED_WHEN_MUST_CHANGE
+    ):
+        return redirect(url_for("change_password"))
 
 
 @app.context_processor
 def inject_current_user():
     # テンプレも session['role'] ではなく current_user.role を使うように統一
     return {"current_user": getattr(g, "user", None)}
+
+
+# V2: CSRF トークン期限切れ時の親切な UX 救済
+# 既定の 400 ページに着地すると「シフトを出したつもりが消えた」事故になるため、
+# セッションを破棄しログイン画面に flash 付きで送る。
+# 重要: flash() は内部で session を使うため session.clear() → flash() → redirect() の順。
+@app.errorhandler(CSRFError)
+def handle_csrf_error(e):
+    session.clear()
+    flash("セッションが切れました。もう一度ログインしてください。")
+    return redirect(url_for("login"))
+
+
+# V9: 軽量セキュリティヘッダ（フェーズ2.5）
+@app.after_request
+def add_security_headers(resp):
+    resp.headers.setdefault("X-Frame-Options", "DENY")
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("Referrer-Policy", "same-origin")
+    return resp
 
 
 def require_login():
@@ -249,10 +296,9 @@ def login():
             ).fetchone()
         if row and check_password_hash(row[1], p):
             # P: 旧セッションを必ず破棄してから新規セッションを設定
+            # V11: session には username のみ保持（role/name は load_current_user が DB から再取得）
             session.clear()
             session["username"] = row[0]
-            session["role"] = row[2]
-            session["name"] = row[3]
             return redirect(url_for("menu"))
         return render_template("login.html", error="IDまたはパスワードが正しくありません")
     return render_template("login.html")
@@ -318,8 +364,13 @@ def index():
 
 @app.route("/worker/<name>", methods=["GET", "POST"])
 def worker(name):
-    if not require_login() or g.user.name != name:
+    if not require_login():
         return redirect(url_for("login"))
+    # V8: 他人のシフト入力画面を叩いたときはログイン画面ではなくメニューへ
+    # （「ログアウトされた？」と混乱するのを防ぐ）
+    if g.user.name != name:
+        flash("自分のシフト入力画面以外にはアクセスできません")
+        return redirect(url_for("menu"))
     return handle_input("worker.html", name)
 
 
@@ -356,7 +407,15 @@ def manage_users():
         if request.method == "POST":
             with conn:
                 action = request.form.get("action")
-                u = (request.form.get("username") or "").strip()
+                # V20: 編集モードでは original_username を権威とし、フォームの username 入力は無視
+                #   1) DB 検索キーが書き換わらないことを保証
+                #   2) 「太郎を修正したつもりが新規ユーザー作成」事故を防止
+                mode = (request.form.get("mode") or "create").strip()
+                original_username = (request.form.get("original_username") or "").strip()
+                if action == "add" and mode == "edit":
+                    u = original_username
+                else:
+                    u = (request.form.get("username") or "").strip()
                 if not USERNAME_RE.match(u):
                     flash("ユーザーIDの形式が不正です（半角英数記号 1〜32文字）")
                 elif action == "add":
@@ -375,7 +434,13 @@ def manage_users():
                     ).fetchone()
                     # Codex#1: すべての検証を先に通し、検証通過後にだけ DB を更新する
                     # （検証失敗時に shifts.name だけ先に変わって users と不整合になる事故を防ぐ）
-                    if r not in ("admin", "worker"):
+                    if mode == "edit" and not existing:
+                        # V20: 編集対象が消えている / ID 改ざんを検知
+                        flash("編集対象のユーザーが見つかりません。ID 変更は禁止です（停止 → 削除 → 新規登録の手順で行ってください）")
+                    elif mode == "create" and existing:
+                        # V20: 重複登録を明示的に拒否（修正したいなら一覧の「修正」を使う）
+                        flash(f"そのID（{u}）は既に登録されています。修正する場合は一覧の「修正」ボタンから操作してください")
+                    elif r not in ("admin", "worker"):
                         flash("権限の値が不正です")
                     elif not HEX_COLOR_RE.match(col):
                         flash("色コードの形式が不正です（#RRGGBB）")
@@ -413,12 +478,14 @@ def manage_users():
                                     (n, existing[0]),
                                 )
                             if p:
+                                # V23: 管理者が新しいパスワードを設定した場合は
+                                # 本人の初回ログイン時に強制変更を促す
                                 conn.execute(
-                                    "UPDATE users SET password=?, role=?, name=?, color=? "
-                                    "WHERE username=?",
+                                    "UPDATE users SET password=?, role=?, name=?, color=?, "
+                                    "must_change_password=1 WHERE username=?",
                                     (generate_password_hash(p), r, n, col, u),
                                 )
-                                flash("ユーザー情報を保存しました")
+                                flash("ユーザー情報を保存しました（本人は次回ログイン時にパスワード変更を求められます）")
                             else:
                                 # A: 編集時にパスワード空欄ならパスワードは据え置き
                                 conn.execute(
@@ -427,13 +494,14 @@ def manage_users():
                                 )
                                 flash("ユーザー情報を保存しました（パスワードは変更なし）")
                         else:
+                            # V23: 新規ユーザーは初回ログイン時にパスワード変更必須
                             conn.execute(
                                 "INSERT INTO users "
-                                "(username, password, role, name, is_active, color) "
-                                "VALUES (?, ?, ?, ?, 1, ?)",
+                                "(username, password, role, name, is_active, color, must_change_password) "
+                                "VALUES (?, ?, ?, ?, 1, ?, 1)",
                                 (u, generate_password_hash(p), r, n, col),
                             )
-                            flash("ユーザーを登録しました")
+                            flash("ユーザーを登録しました（本人は初回ログイン時にパスワード変更を求められます）")
                 elif action == "toggle":
                     try:
                         s = int(request.form.get("current_status", ""))
@@ -464,27 +532,10 @@ def manage_users():
                                 (0 if s == 1 else 1, u),
                             )
                 elif action == "delete":
-                    # Codex(後追加)#1: 自分自身の削除禁止 + 最後の有効 admin の削除禁止
-                    if u == g.user.username:
-                        flash("自分自身を削除することはできません")
-                    elif u == "admin":
-                        # 既存の固定保護を維持
-                        pass
-                    else:
-                        target = conn.execute(
-                            "SELECT name, role, is_active FROM users WHERE username=?", (u,)
-                        ).fetchone()
-                        allow = True
-                        if target and target[1] == "admin" and target[2] == 1:
-                            admin_count = conn.execute(
-                                "SELECT COUNT(*) FROM users WHERE role='admin' AND is_active=1"
-                            ).fetchone()[0]
-                            if admin_count <= 1:
-                                flash("最後の有効な管理者を削除することはできません")
-                                allow = False
-                        if allow and target:
-                            conn.execute("DELETE FROM shifts WHERE name=?", (target[0],))
-                            conn.execute("DELETE FROM users WHERE username=?", (u,))
+                    # V19: 試用初期は UI から削除ボタンを撤去（manage_users.html）。
+                    # 万一直接 POST が来ても、停止運用に寄せるため一律で拒否する。
+                    # 物理削除が必要なら、バックアップ後に管理 CLI（sqlite3）で行う運用。
+                    flash("削除は管理操作で行ってください。停止で十分なケースが大半です。")
         # A: パスワード列は読み出さない（HTMLに渡さない）
         users = conn.execute(
             "SELECT username, role, name, is_active, color FROM users"
@@ -495,25 +546,30 @@ def manage_users():
 @app.route("/change_password", methods=["GET", "POST"])
 @limiter.limit("10 per minute", methods=["POST"])
 def change_password():
+    # V1: ログイン必須化（未ログインの username 当て攻撃面を撤去）。
+    # V23: must_change_password=1 の本人もこの画面に強制誘導される。
+    if not require_login():
+        return redirect(url_for("login"))
+    u = g.user.username
     if request.method == "POST":
-        u = (request.form.get("username") or "").strip()
         p_curr = request.form.get("password_current") or ""
         p_new = request.form.get("password_new") or ""
         with closing(get_db()) as conn:
             row = conn.execute(
-                "SELECT username, password FROM users WHERE username=? AND is_active=1",
-                (u,),
+                "SELECT password FROM users WHERE username=? AND is_active=1", (u,)
             ).fetchone()
-        if not row or not check_password_hash(row[1], p_curr) or not is_valid_password(p_new):
+        if not row or not check_password_hash(row[0], p_curr) or not is_valid_password(p_new):
             return render_template(
                 "change_password.html",
-                error="現在の情報が間違っているか、新しいパスワードが正しくありません",
+                error="現在のパスワードが間違っているか、新しいパスワードが不正です（4文字以上の英数字）",
             )
         with closing(get_db()) as conn, conn:
+            # V23: 変更成功で must_change_password=0 に戻す
             conn.execute(
-                "UPDATE users SET password=? WHERE username=?",
+                "UPDATE users SET password=?, must_change_password=0 WHERE username=?",
                 (generate_password_hash(p_new), u),
             )
+        session.clear()
         flash("パスワードを変更しました。再度ログインしてください。")
         return redirect(url_for("login"))
     return render_template("change_password.html")
