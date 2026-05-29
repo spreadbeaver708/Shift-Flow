@@ -1,0 +1,64 @@
+{# 備考モーダル + 送信後 confirm の共通パーシャル（worker.html / index.html から include）。
+   呼び出し側で {% set next_url = url_for(...) %} しておくこと。
+   V12: inline onclick を撤廃し addEventListener で結線。
+   V25: worker.html / index.html の重複（modal + JS ~ 40行）をここに集約。 #}
+<div id="remarkModal" class="modal-overlay">
+    <div class="modal-content">
+        <h3 id="modalTitle"></h3>
+        <textarea id="modalTextarea" class="modal-textarea"></textarea>
+        <button type="button" id="modalSaveBtn" class="menu-btn btn-entry" style="width: 100%; border:none;">OK</button>
+    </div>
+</div>
+
+<script>
+    (function () {
+        var modal = document.getElementById('remarkModal');
+        var modalTitle = document.getElementById('modalTitle');
+        var modalTextarea = document.getElementById('modalTextarea');
+        var currentDay = null;
+
+        function openRemark(day) {
+            currentDay = day;
+            modalTitle.innerText = day + "日の備考";
+            modalTextarea.value = document.getElementById('input_remark_' + day).value;
+            modal.style.display = 'block';
+        }
+
+        function saveRemark() {
+            var val = modalTextarea.value;
+            var hidden = document.getElementById('input_remark_' + currentDay);
+            var btn = document.getElementById('btn_remark_' + currentDay);
+            var cell = document.getElementById('cell_' + currentDay);
+            hidden.value = val;
+            if (val.trim() !== "") {
+                btn.classList.add('active');
+                btn.innerText = "★備考あり";
+                cell.classList.add('has-remark-bg');
+            } else {
+                btn.classList.remove('active');
+                btn.innerText = "備考";
+                cell.classList.remove('has-remark-bg');
+            }
+            modal.style.display = 'none';
+        }
+
+        // V12: 備考ボタンとモーダル保存ボタンを addEventListener で結線
+        document.querySelectorAll('.btn-remark-open').forEach(function (btn) {
+            btn.addEventListener('click', function (e) {
+                openRemark(e.currentTarget.dataset.day);
+            });
+        });
+        document.getElementById('modalSaveBtn').addEventListener('click', saveRemark);
+
+        // 送信後の確認ポップアップ（V5: クエリ除去で再発火防止）
+        var params = new URLSearchParams(window.location.search);
+        if (params.get('submitted') === 'true') {
+            history.replaceState(null, '', location.pathname);
+            if (confirm("送信されました。このまま翌月分も提出しますか？")) {
+                location.href = {{ next_url|tojson }};
+            } else {
+                location.href = {{ url_for('menu')|tojson }};
+            }
+        }
+    })();
+</script>

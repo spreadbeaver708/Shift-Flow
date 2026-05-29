@@ -9,6 +9,7 @@
 </head>
 
 <body>
+    {% set next_url = url_for('worker', name=name, year=next_y, month=next_m) %}
     <div class="container">
         <h1>{{ name }} のシフト提出</h1>
         <a href="{{ url_for('menu') }}" class="btn-back">← メニューに戻る</a>
@@ -26,13 +27,7 @@
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <table class="calendar-table">
                 <tr>
-                    <th>日</th>
-                    <th>月</th>
-                    <th>火</th>
-                    <th>水</th>
-                    <th>木</th>
-                    <th>金</th>
-                    <th>土</th>
+                    <th>日</th><th>月</th><th>火</th><th>水</th><th>木</th><th>金</th><th>土</th>
                 </tr>
                 {% for week in cal %}
                 <tr>
@@ -45,21 +40,22 @@
                             style="font-size:0.75rem; color:#999; padding:2px; border-bottom:1px solid #f9f9f9; margin-bottom:5px;">
                             {{ day }}</div>
                         {% if i in [0, 1, 4] %}
+                        {# 職員向けレイアウト：タップ領域を最大化（ラジオ非表示・ラベル全幅） #}
                         <div style="display: flex; flex-direction: column; width: 100%; gap: 5px;">
                             <div style="display: flex; flex-direction: row; width: 100%; gap: 4px;">
-                                <input type="radio" id="ok_{{day}}" name="day_{{day}}" value="〇" {% if s.status=='〇'
-                                    %}checked{% endif %} style="display: none;">
+                                <input type="radio" id="ok_{{day}}" name="day_{{day}}" value="〇"
+                                       {% if s.status=='〇' %}checked{% endif %} style="display: none;">
                                 <label for="ok_{{day}}" class="radio-label"
                                     style="flex: 1; min-width: 0; height: 36px; line-height: 36px; border-radius: 6px; margin: 0; padding: 0; text-align: center; box-sizing: border-box;">〇</label>
 
-                                <input type="radio" id="ng_{{day}}" name="day_{{day}}" value="×" {% if s.status=='×'
-                                    %}checked{% endif %} style="display: none;">
+                                <input type="radio" id="ng_{{day}}" name="day_{{day}}" value="×"
+                                       {% if s.status=='×' %}checked{% endif %} style="display: none;">
                                 <label for="ng_{{day}}" class="radio-label"
                                     style="flex: 1; min-width: 0; height: 36px; line-height: 36px; border-radius: 6px; margin: 0; padding: 0; text-align: center; box-sizing: border-box;">×</label>
                             </div>
-                            <button type="button" id="btn_remark_{{day}}"
+                            {# V12: data-day で受け渡し、JS は addEventListener で結線（パーシャル側） #}
+                            <button type="button" id="btn_remark_{{day}}" data-day="{{day}}"
                                 class="btn-remark-open {% if s.remark %}active{% endif %}"
-                                onclick="openRemarkModal('{{day}}')"
                                 style="width: 100%; margin: 0; box-sizing: border-box;">
                                 {{ '★備考あり' if s.remark else '備考' }}
                             </button>
@@ -76,46 +72,8 @@
         </form>
     </div>
 
-    <div id="remarkModal" class="modal-overlay">
-        <div class="modal-content">
-            <h3 id="modalTitle"></h3><textarea id="modalTextarea" class="modal-textarea"></textarea><button
-                type="button" class="menu-btn btn-entry" style="width: 100%; border:none;"
-                onclick="saveRemark()">OK</button>
-        </div>
-    </div>
-
-    <script>
-        let currentDay = null;
-        function openRemarkModal(day) {
-            currentDay = day;
-            document.getElementById('modalTitle').innerText = day + "日の備考";
-            document.getElementById('modalTextarea').value = document.getElementById('input_remark_' + day).value;
-            document.getElementById('remarkModal').style.display = 'block';
-        }
-        function saveRemark() {
-            const val = document.getElementById('modalTextarea').value;
-            document.getElementById('input_remark_' + currentDay).value = val;
-            const btn = document.getElementById('btn_remark_' + currentDay);
-            const cell = document.getElementById('cell_' + currentDay);
-            if (val.trim() !== "") { btn.classList.add('active'); btn.innerText = "★備考あり"; cell.classList.add('has-remark-bg'); }
-            else { btn.classList.remove('active'); btn.innerText = "備考"; cell.classList.remove('has-remark-bg'); }
-            document.getElementById('remarkModal').style.display = 'none';
-        }
-
-        /* 送信後の確認ポップアップ */
-        const params = new URLSearchParams(window.location.search);
-        if (params.get('submitted') === 'true') {
-            // V5: クエリを URL から除去（ブラウザ更新で confirm が再発火する事故を防ぐ）
-            history.replaceState(null, '', location.pathname);
-            if (confirm("送信されました。このまま翌月分も提出しますか？")) {
-                // 「はい」：翌月の入力画面へ
-                location.href = "{{ url_for('worker', name=name, year=next_y, month=next_m) }}";
-            } else {
-                // 「いいえ」：メニュー画面へ
-                location.href = "{{ url_for('menu') }}";
-            }
-        }
-    </script>
+    {# V25: 備考モーダル + 送信後 confirm は共通パーシャル #}
+    {% include '_remark_modal.html' %}
 </body>
 
 </html>
