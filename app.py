@@ -191,8 +191,16 @@ def get_month_links():
     }
 
 
+# V27: パスワード方針（NIST SP 800-63B の考え方）。
+#   - 長さを重視し 8 文字以上。記号・空白・日本語も許可し、文字種の縛りはかけない
+#     （以前の .isalnum() 必須は、強い記号入りパスワードを弾く逆効果だった）。
+#   - 上限 128 文字（極端に長い入力でハッシュ計算資源を浪費させる事故を防ぐ）。
+PASSWORD_MIN_LEN = 8
+PASSWORD_MAX_LEN = 128
+
+
 def is_valid_password(p):
-    return p is not None and len(p) >= 4 and p.isalnum()
+    return p is not None and PASSWORD_MIN_LEN <= len(p) <= PASSWORD_MAX_LEN
 
 
 def safe_ym(default_y, default_m):
@@ -212,6 +220,9 @@ def safe_ym(default_y, default_m):
 @app.before_request
 def load_current_user():
     g.user = None
+    # 静的ファイルは認証不要。毎リクエストの DB 照会を避ける（負荷・攻撃面の低減）。
+    if request.endpoint == "static":
+        return
     u = session.get("username")
     if not u:
         return
@@ -262,12 +273,33 @@ def handle_csrf_error(e):
     return redirect(url_for("login"))
 
 
-# V9: 軽量セキュリティヘッダ（フェーズ2.5）
+# V9/V27: セキュリティヘッダ。
+#   - CSP: 外部リソース読み込み・フレーム埋め込み・フォーム送信先の外部流出を遮断。
+#     アプリは inline の <script>/style= を使うため script/style に 'unsafe-inline' を許可
+#     （CSS/JS は /static と inline のみで外部 CDN は未使用）。nonce 化はフェーズ3の課題。
+#   - HSTS: 本番（HTTPS）でのみ付与。HTTP への降格を防ぐ。
+_CSP_POLICY = (
+    "default-src 'self'; "
+    "script-src 'self' 'unsafe-inline'; "
+    "style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data:; "
+    "object-src 'none'; "
+    "base-uri 'self'; "
+    "form-action 'self'; "
+    "frame-ancestors 'none'"
+)
+
+
 @app.after_request
 def add_security_headers(resp):
     resp.headers.setdefault("X-Frame-Options", "DENY")
     resp.headers.setdefault("X-Content-Type-Options", "nosniff")
     resp.headers.setdefault("Referrer-Policy", "same-origin")
+    resp.headers.setdefault("Content-Security-Policy", _CSP_POLICY)
+    if IS_PROD:
+        resp.headers.setdefault(
+            "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
+        )
     return resp
 
 
@@ -296,6 +328,11 @@ def require_admin():
     return g.user is not None and g.user.role == "admin"
 
 
+# V27: ログイン失敗時、ユーザーの存在有無で応答時間が変わると ID 列挙の手がかりになる。
+# 該当ユーザーが無い場合もこのダミーハッシュで検証を回し、処理時間を平準化する。
+_DUMMY_PW_HASH = generate_password_hash("not-a-real-password")
+
+
 # =====================
 # ルート定義
 # =====================
@@ -317,6 +354,9 @@ def login():
             session.clear()
             session["username"] = row[0]
             return redirect(url_for("menu"))
+        # V27: 該当ユーザーが居ない場合もダミー検証で応答時間を揃える（ID 列挙対策）
+        if not row:
+            check_password_hash(_DUMMY_PW_HASH, p)
         return render_template("login.html", error="IDまたはパスワードが正しくありません")
     return render_template("login.html")
 
@@ -469,9 +509,9 @@ def manage_users():
                     elif dup:
                         flash(f"同じ表示名のユーザー（ID: {dup[0]}）が既に存在します")
                     elif existing and p and not is_valid_password(p):
-                        flash("パスワードは4文字以上の英数字で入力してください")
+                        flash("パスワードは8文字以上で入力してください")
                     elif not existing and not is_valid_password(p):
-                        flash("パスワードは4文字以上の英数字で入力してください")
+                        flash("パスワードは8文字以上で入力してください")
                     elif existing and existing[1] != r and u == g.user.username:
                         # Codex(後追加)#1: 自分自身の権限変更を禁止（自己降格による締め出し防止）
                         flash("自分自身の権限は変更できません")
@@ -578,7 +618,7 @@ def change_password():
         if not row or not check_password_hash(row[0], p_curr) or not is_valid_password(p_new):
             return render_template(
                 "change_password.html",
-                error="現在のパスワードが間違っているか、新しいパスワードが不正です（4文字以上の英数字）",
+                error="現在のパスワードが間違っているか、新しいパスワードが不正です（8文字以上）",
             )
         with closing(get_db()) as conn, conn:
             # V23: 変更成功で must_change_password=0 に戻す

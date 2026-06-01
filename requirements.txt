@@ -1,4 +1,9 @@
 Flask==3.1.0
+# セキュリティ修正を確実に取り込むための明示ピン
+#   Werkzeug 3.1.6: CVE-2025-66221（safe_join の Windows デバイス名）修正
+#   Jinja2 3.1.6:   CVE-2025-27516（サンドボックス回避）修正
+Werkzeug>=3.1.6
+Jinja2>=3.1.6
 gunicorn==23.0.0
 Flask-WTF==1.2.1
 Flask-Limiter==3.8.0
