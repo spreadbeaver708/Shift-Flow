@@ -1,9 +1,11 @@
 import os
 import re
 import json
+import glob
 import secrets
 import sqlite3
 import calendar
+import ipaddress
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -80,8 +82,13 @@ app.config.update(
     SESSION_COOKIE_SECURE=IS_PROD,
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
-    SESSION_COOKIE_NAME="sfid",
+    # V29: 本番(HTTPS)は __Host- prefix で固定（Secure/Path=/・Domain無が条件）。
+    #      dev は HTTP のため通常名（__Host- は Secure 必須で HTTP 不可）。
+    SESSION_COOKIE_NAME=("__Host-sfid" if IS_PROD else "sfid"),
     PERMANENT_SESSION_LIFETIME=timedelta(minutes=SESSION_IDLE_MINUTES),
+    # V29: 本文サイズ上限。Werkzeug の form 既定(500KB/1000parts)に加え、本文全体を
+    #      早期に総量で弾く深層防御（フォームは数十KB）。超過は 413。
+    MAX_CONTENT_LENGTH=256 * 1024,
 )
 
 # Codex(後追加)#4: ProxyFix を信頼段数分だけ適用（既定 0 では適用しない）
@@ -96,12 +103,37 @@ if TRUSTED_PROXY_HOPS > 0:
 # D: CSRF
 csrf = CSRFProtect(app)
 
-# I: ログイン試行レート制限
-# Codex#4: storage_uri を明示。複数 worker でレート制限を厳密に共有したい場合は
-# RATELIMIT_STORAGE_URI=redis://... のような共有ストレージを指定する。
-# 未指定（memory://）の場合は worker ごとに別カウンタになる点に注意（README 参照）。
+# V29: クライアントIP解決。前段が Cloudflare + Render LB のため get_remote_address() は
+# 既定でプロキシIPになりうる。Render は CF-Connecting-IP（元クライアントIPのみ）を転送するので、
+# 明示的に信頼する場合（env TRUST_CF_CONNECTING_IP=1）に限りそれを優先する。
+# 直アクセス不可（エッジ経由のみ）な構成でのみ安全＝TRUSTED_PROXY_HOPS と同じ明示信頼方針。
+TRUST_CF_CONNECTING_IP = os.environ.get("TRUST_CF_CONNECTING_IP", "0").strip().lower() in ("1", "true", "yes")
+
+
+def client_ip():
+    # V29: TRUST_CF_CONNECTING_IP=1 のときのみ CF-Connecting-IP を採用。ただし
+    # **妥当な IP アドレスとして検証できた場合に限る**（不正値は get_remote_address にフォールバック）。
+    # 偽装の根本防止はエッジ(Cloudflare/Render)がこのヘッダを上書きすること。検証は深層防御で、
+    # 不正値が監査ログ/レート制限キーに混入するのを防ぐ。
+    if TRUST_CF_CONNECTING_IP:
+        cf = request.headers.get("CF-Connecting-IP")
+        if cf:
+            candidate = cf.split(",")[0].strip()
+            try:
+                ipaddress.ip_address(candidate)
+                return candidate
+            except ValueError:
+                pass
+    return get_remote_address()
+
+
+# I: ログイン試行レート制限（key は client_ip に統一）
+# Codex#4: storage_uri を明示。複数 worker で厳密共有したい場合は RATELIMIT_STORAGE_URI=redis://...。
+# 未指定（memory://）は worker ごとに別カウンタになる点に注意（README 参照）。
+# V29: ログイン上限は LOGIN_RATE_LIMIT で可変（既定 20/分）。change_password は 10/分維持。
+LOGIN_RATE_LIMIT = os.environ.get("LOGIN_RATE_LIMIT", "20 per minute")
 limiter = Limiter(
-    get_remote_address,
+    client_ip,
     app=app,
     default_limits=[],
     storage_uri=os.environ.get("RATELIMIT_STORAGE_URI", "memory://"),
@@ -119,6 +151,18 @@ os.makedirs(app.instance_path, exist_ok=True)
 _db_dir = os.path.dirname(DB_PATH)
 if _db_dir:
     os.makedirs(_db_dir, exist_ok=True)
+
+# V29: 起動時自動バックアップの設定（実行は既定で本番のみ。テスト/開発では走らせない）。
+try:
+    BACKUP_KEEP = int(os.environ.get("BACKUP_KEEP", "14"))
+except ValueError:
+    BACKUP_KEEP = 14
+if BACKUP_KEEP < 1:
+    # V29: 0/負数で剪定が無効化されディスクを圧迫しないよう、最低 1 世代に clamp。
+    BACKUP_KEEP = 1
+BACKUP_ON_STARTUP = os.environ.get(
+    "BACKUP_ON_STARTUP", "1" if IS_PROD else "0"
+).strip().lower() in ("1", "true", "yes")
 
 # カレンダーを日曜日始まりに固定
 calendar.setfirstweekday(calendar.SUNDAY)
@@ -199,6 +243,16 @@ def init_db():
             "FOREIGN KEY(username) REFERENCES users(username) ON DELETE CASCADE)"
         )
 
+        # V29: 表示名のDB一意制約（アプリ検証の二重化）。既存重複があると索引作成に失敗し
+        # 起動不能になるため、重複0件のときだけ作成する（重複時は警告printしてスキップ）。
+        dup_names = conn.execute(
+            "SELECT COUNT(*) FROM (SELECT 1 FROM users GROUP BY name HAVING COUNT(*) > 1)"
+        ).fetchone()[0]
+        if dup_names == 0:
+            conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_name ON users(name)")
+        else:
+            print(f"[init] users.name に重複 {dup_names} 件のため UNIQUE 索引はスキップ（要手動解消）")
+
         # C: 旧版の固定初期パスワードを排除。admin が存在しない場合のみ作成。
         # Codex#2: gunicorn -w N で複数 worker が同時に起動した場合の競合を防ぐため
         #   1) INSERT OR IGNORE で冪等にする（UNIQUE 違反は無視）
@@ -224,8 +278,34 @@ def init_db():
                 print("[init] admin ユーザーを作成しました（ADMIN_INIT_PASSWORD を使用）")
 
 
+def backup_db():
+    """DB を backups/ に SQLite Backup API でコピーし、最新 BACKUP_KEEP 世代を残す。
+    起動を止めないため、呼び出し側で例外を握りつぶす想定。生成先パスを返す。"""
+    bdir = os.path.join(_db_dir or ".", "backups")
+    os.makedirs(bdir, exist_ok=True)
+    # マイクロ秒まで含め、同一秒内の連続実行でもファイル名が衝突しないようにする
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
+    dest = os.path.join(bdir, f"shift-{ts}.db")
+    with closing(sqlite3.connect(DB_PATH)) as src, closing(sqlite3.connect(dest)) as dst:
+        src.backup(dst)  # オンライン整合バックアップ（稼働中でも安全）
+    # 古い世代を削除（ファイル名は時刻順＝辞書順）
+    if BACKUP_KEEP > 0:
+        for old in sorted(glob.glob(os.path.join(bdir, "shift-*.db")))[:-BACKUP_KEEP]:
+            try:
+                os.remove(old)
+            except OSError:
+                pass
+    return dest
+
+
 init_db()
 print(f"[init] DB_PATH={DB_PATH}")
+# V29: 起動時自動バックアップ（既定で本番のみ）。失敗しても起動は止めない。
+if BACKUP_ON_STARTUP:
+    try:
+        print(f"[init] startup backup: {backup_db()}")
+    except Exception as e:
+        print(f"[init] startup backup skipped (error: {e})")
 
 
 # =====================
@@ -371,9 +451,9 @@ def add_security_headers(resp):
         resp.headers.setdefault(
             "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
         )
-    # V28: 認証済みページは端末・中間キャッシュに残さない（共有/個人端末の戻るボタン対策、
-    # かつ CVE-2026-27205 = session アクセス時の Vary: Cookie 欠落によるキャッシュ汚染の緩和）。
-    if request.endpoint != "static" and getattr(g, "user", None) is not None:
+    # V28/V29: 静的以外の全動的応答を端末・中間キャッシュに残さない（共有/個人端末の戻るボタン
+    # 対策、login の CSRF トークン鮮度、CVE-2026-27205 = session アクセス時の Vary: Cookie 欠落緩和）。
+    if request.endpoint != "static":
         resp.headers["Cache-Control"] = "no-store"
     return resp
 
@@ -393,6 +473,12 @@ def handle_404(e):
 @app.errorhandler(500)
 def handle_500(e):
     return render_template("errors/500.html"), 500
+
+
+@app.errorhandler(413)
+def handle_413(e):
+    # V29: 本文サイズ超過。素のエラーを出さず親切ページへ。
+    return render_template("errors/413.html"), 413
 
 
 def require_login():
@@ -430,7 +516,7 @@ def log_action(conn, action, target="", detail="", actor=None, actor_name=None):
     if not isinstance(detail, str):
         detail = json.dumps(detail, ensure_ascii=False)
     try:
-        ip = get_remote_address() or ""
+        ip = client_ip() or ""
     except Exception:
         ip = ""
     conn.execute(
@@ -459,11 +545,24 @@ def log_event(action, target="", detail="", actor=None, actor_name=None):
         log_action(conn, action, target, detail, actor, actor_name)
 
 
+# V29: 管理者専用ルートの共通ガード（認可を一貫させる）。
+#   未ログイン      → login へリダイレクト（呼び出し側で return する）
+#   ログイン済み非管理者 → authz_fail を監査記録して 403（abort で送出）
+#   管理者          → None（呼び出し側は処理続行）
+def deny_if_not_admin():
+    if not require_login():
+        return redirect(url_for("login"))
+    if not require_admin():
+        log_event("authz_fail", target=(request.path or "")[:128])
+        abort(403)
+    return None
+
+
 # =====================
 # ルート定義
 # =====================
 @app.route("/login", methods=["GET", "POST"])
-@limiter.limit("10 per minute", methods=["POST"])
+@limiter.limit(LOGIN_RATE_LIMIT, methods=["POST"])
 def login():
     if request.method == "POST":
         u = (request.form.get("username") or "").strip()
@@ -605,8 +704,9 @@ def handle_input(template, target_username, target_name, confirmed=False):
 
 @app.route("/", methods=["GET", "POST"])
 def index():
-    if not require_admin():
-        return redirect(url_for("login"))
+    guard = deny_if_not_admin()
+    if guard:
+        return guard
     return handle_input("index.html", g.user.username, g.user.name)
 
 
@@ -625,11 +725,10 @@ def worker(name):
 
 @app.route("/admin")
 def admin():
-    # N: フェーズ1 では /admin を管理者専用に
-    if not require_login():
-        return redirect(url_for("login"))
-    if not require_admin():
-        abort(403)
+    # N: /admin は管理者専用（V29: 共通ガードに統一＋authz_fail 記録）
+    guard = deny_if_not_admin()
+    if guard:
+        return guard
     now = datetime.now()
     year, month = safe_ym(now.year, now.month)
     with closing(get_db()) as conn:
@@ -651,8 +750,9 @@ def admin():
 
 @app.route("/manage_users", methods=["GET", "POST"])
 def manage_users():
-    if not require_admin():
-        return redirect(url_for("login"))
+    guard = deny_if_not_admin()
+    if guard:
+        return guard
     with closing(get_db()) as conn:
         if request.method == "POST":
             with conn:
@@ -802,11 +902,10 @@ def manage_users():
 
 @app.route("/logs")
 def logs():
-    # V28: 操作ログの閲覧（管理者専用）。職員は 403、未ログインは login へ。
-    if not require_login():
-        return redirect(url_for("login"))
-    if not require_admin():
-        abort(403)
+    # V28: 操作ログの閲覧（管理者専用）。V29: 共通ガードに統一。
+    guard = deny_if_not_admin()
+    if guard:
+        return guard
     page = request.args.get("page", 1, type=int)
     if not isinstance(page, int) or page < 1:
         page = 1
@@ -828,10 +927,9 @@ def logs():
 @app.route("/submissions")
 def submissions():
     # V28: 提出状況の一覧（管理者専用）。shifts から導出し、最終提出時刻は audit_log から取得。
-    if not require_login():
-        return redirect(url_for("login"))
-    if not require_admin():
-        abort(403)
+    guard = deny_if_not_admin()
+    if guard:
+        return guard
     now = datetime.now()
     year, month = safe_ym(now.year, now.month)
     with closing(get_db()) as conn:
@@ -880,10 +978,9 @@ def submissions():
 @app.route("/confirm")
 def confirm():
     # V28: 確定シフトの作成/編集（管理者専用）。職員を選んで個別に編集する一覧。
-    if not require_login():
-        return redirect(url_for("login"))
-    if not require_admin():
-        abort(403)
+    guard = deny_if_not_admin()
+    if guard:
+        return guard
     now = datetime.now()
     year, month = safe_ym(now.year, now.month)
     with closing(get_db()) as conn:
@@ -911,10 +1008,9 @@ def confirm():
 @app.route("/confirm/<username>", methods=["GET", "POST"])
 def confirm_user(username):
     # V28: 指定職員の確定シフトを編集（管理者専用）。username は ? バインドで安全に照合。
-    if not require_login():
-        return redirect(url_for("login"))
-    if not require_admin():
-        abort(403)
+    guard = deny_if_not_admin()
+    if guard:
+        return guard
     with closing(get_db()) as conn:
         row = conn.execute(
             "SELECT username, name FROM users WHERE username=? AND is_active=1",

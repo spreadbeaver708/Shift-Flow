@@ -110,10 +110,13 @@ def test_authenticated_page_has_no_store(admin_client):
     assert resp.headers.get("Cache-Control") == "no-store"
 
 
-def test_login_page_is_not_no_store(client):
-    """V28: 未認証の login ページには no-store を付けない（過剰適用しない）。"""
+def test_login_page_is_no_store(client):
+    """V29: login を含む全動的応答に no-store（CSRF トークン鮮度・CVE-2026-27205 緩和）。
+    static は対象外（CSS はキャッシュ可）。"""
     resp = client.get("/login")
-    assert resp.headers.get("Cache-Control") != "no-store"
+    assert resp.headers.get("Cache-Control") == "no-store"
+    static_resp = client.get("/static/style.css")
+    assert static_resp.headers.get("Cache-Control") != "no-store"
 
 
 def test_session_idle_timeout_configured(app_module):
