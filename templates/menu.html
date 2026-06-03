@@ -21,10 +21,16 @@
         {% if current_user and current_user.role == 'admin' %}
             <a href="{{ url_for('index') }}" class="menu-btn btn-entry">シフト入力 (管理者)</a>
             <a href="{{ url_for('manage_users') }}" class="menu-btn btn-manage">ユーザー管理</a>
-            <a href="{{ url_for('admin') }}" class="menu-btn btn-confirm">全体のシフト確認</a>
+            <a href="{{ url_for('admin') }}" class="menu-btn btn-confirm">全体のシフト希望を確認</a>
+            <a href="{{ url_for('submissions') }}" class="menu-btn btn-confirm">提出状況の一覧</a>
+            <a href="{{ url_for('confirm') }}" class="menu-btn btn-manage">確定シフトの作成/編集</a>
+            <a href="{{ url_for('logs') }}" class="menu-btn" style="background:var(--sub); border-bottom-color:#444;">操作ログ</a>
         {% else %}
             <a href="{{ url_for('worker', name=current_user.name) }}" class="menu-btn btn-entry">自分のシフト入力</a>
         {% endif %}
+
+        {# 確定シフトの閲覧は全員（読み取り専用） #}
+        <a href="{{ url_for('confirmed') }}" class="menu-btn btn-confirm">確定シフトを見る</a>
 
         <div style="margin-top: 30px;">
             <a href="{{ url_for('change_password') }}" style="color:#666; font-size:0.9rem;">パスワード変更</a>
@@ -37,7 +43,7 @@
     </div>
     {# V3: tojson で JS 文字列リテラル文脈でも安全にエスケープ #}
     {% with messages = get_flashed_messages() %}
-      {% if messages %}<script>alert({{ messages[0]|tojson }});</script>{% endif %}
+      {% if messages %}<script nonce="{{ csp_nonce }}">alert({{ messages[0]|tojson }});</script>{% endif %}
     {% endwith %}
 </body>
 </html>

@@ -30,8 +30,10 @@ services:
         value: /var/data/shift.db   # データベースを「消えない場所」に置く
       - key: TRUSTED_PROXY_HOPS
         value: "1"                  # Render はプロキシ経由のため 1（HTTPS判定とIP別レート制限に必要）
+      - key: SESSION_IDLE_MINUTES
+        value: "30"                 # 無操作でこの分数を過ぎると自動ログアウト（個人端末の置き忘れ対策）
       - key: PYTHON_VERSION
-        value: "3.14.3"             # Render の既定と同じ版に固定（動作の再現性のため）
+        value: "3.14.5"             # 3.14.5 で GC が generational に戻り本番のメモリ挙動が安定（動作再現性のため固定）
       - key: SECRET_KEY
         generateValue: true         # Render が安全なランダム値を自動生成（手入力不要）
       - key: ADMIN_INIT_PASSWORD

@@ -1,6 +1,6 @@
 # Shift-Flow セキュリティレビュー（現状版）
 
-最終更新: 2026-06-01 / 対象: Render 公開・4 名試用開始時点
+最終更新: 2026-06-03 / 対象: Render 公開・4 名試用中（次フェーズ V28 反映）
 
 このドキュメントは「いまの実装で、何から守れているか」を簡潔にまとめたものです。
 過去の指摘ひとつひとつの経緯（初期レビュー A〜S や各フェーズの履歴）は Git の履歴を参照してください。
@@ -53,40 +53,60 @@
 
 ---
 
+## 3.5 次フェーズ（V28）の強化
+
+| 強化 | 内容 | 重大度 |
+|------|------|--------|
+| アイドルタイムアウト | `PERMANENT_SESSION_LIFETIME`＋`session.permanent`（既定30分・env `SESSION_IDLE_MINUTES`）。無操作で自動ログアウト＝個人端末の置き忘れ対策 | 中 |
+| CSP nonce 化 | `script-src` から `'unsafe-inline'` を撤去し **nonce 方式**へ。`base-uri 'none'`。XSS 時の inline スクリプト実行を遮断（inline `style=` を多用するため `style-src 'unsafe-inline'` は当面維持＝別タスク） | 中 |
+| キャッシュ抑止 | 認証済みページに `Cache-Control: no-store`（共有/個人端末の戻るボタン対策。**CVE-2026-27205** の緩和も兼ねる） | 低〜中 |
+| 監査ログ | `audit_log` に主要操作を記録（ログイン成否・PW変更・ユーザー操作・希望提出・確定保存・CSRF）。**パスワード/ハッシュ/備考本文/CSRFトークンは不記録**。最新1万件保持。閲覧 `/logs` は管理者専用 | 中 |
+| username 移行 | シフトを表示名から **`username` 基準**へ非破壊移行（列追加＋backfill）。rename 取りこぼしを解消し、確定シフトの土台に。`name` 列は互換のため残置・併記 | 中 |
+| 確定シフト | 希望(`shifts`)と分離した `confirmed_shifts`（`username` 基準・FK・`ON DELETE CASCADE`）。管理者が職員ごとに編集、職員はチーム全体を**読み取り専用**で閲覧 | 機能 |
+| 提出状況一覧 | 管理者が月ごとの提出済/未提出・〇日数・最終提出を一覧（`shifts`＋`audit_log` から導出。サマリテーブルは作らない） | 機能 |
+| 依存更新 | `Flask 3.1.3`（CVE-2026-27205 修正）/ `Werkzeug>=3.1.8` / Python 3.14.5（GC 安定化） | 低 |
+
+---
+
 ## 4. 依存パッケージと既知脆弱性（一次ソース確認済み）
 
 | パッケージ | バージョン | 状況 |
 |------------|-----------|------|
-| Flask | 3.1.0 | 該当 CVE なし |
-| Werkzeug | **≥3.1.6** | **CVE-2025-66221**（`safe_join` の Windows デバイス名）を 3.1.6 で修正。本アプリは ① Render = Linux ② ユーザー制御のファイルパスを `send_from_directory` で扱わない、ため**元から非該当**だが確実化のためピン |
+| Flask | **3.1.3** | **CVE-2026-27205**（session を `in`/`len` 参照時に `Vary: Cookie` が欠落→キャッシュ汚染、CVSS2.3）を 3.1.3 で修正。本アプリは認証ページに `Cache-Control: no-store` を付与し緩和済みだが確実化のため更新。CVE-2025-47278（`SECRET_KEY_FALLBACKS`）は鍵ローテーション未使用のため**非該当** |
+| Werkzeug | **≥3.1.8** | `safe_join` の Windows デバイス名系（**CVE-2025-66221 / CVE-2026-21860 / CVE-2026-27199**）を最新で修正。本アプリは ① Render = Linux ② ユーザー制御のファイルパスを `send_from_directory` で扱わない、ため**非該当**だが確実化のためピン |
 | Jinja2 | **≥3.1.6** | **CVE-2025-27516**（サンドボックス回避）を 3.1.6 で修正。本アプリは信頼できないテンプレートを描画しないため**非該当**だが確実化のためピン |
 | Flask-WTF | 1.2.1 | CSRF 用。既知の重大 CVE なし |
 | Flask-Limiter | 3.8.0 | レート制限用。既知の重大 CVE なし |
 | gunicorn | 23.0.0 | 既知の重大 CVE なし |
 
-> 参考（一次ソース）: GitHub Advisory `GHSA-hgf8-39gv-g3f2`（CVE-2025-66221）、Werkzeug 3.1.x 公式ドキュメント（`generate_password_hash` 既定 = scrypt）。
+> 参考（一次ソース）: GitHub Advisory `GHSA-68rp-wp8r-4726`（CVE-2026-27205, Flask）、`GHSA-4grg-w6v8-c28g`（CVE-2025-47278, Flask 鍵フォールバック・非該当）、`GHSA-hgf8-39gv-g3f2`（CVE-2025-66221, Werkzeug）、Werkzeug 3.1.x 公式ドキュメント（`generate_password_hash` 既定 = scrypt）、Render Disks docs（ディスク付与でゼロダウンタイム不可・DB は `.backup` 推奨）。
 
 ---
 
 ## 5. 検証
 
-- **自動テスト**: `pytest` **51 件すべて成功**（`tests/`）。
-- 観点: ログイン/セッション衛生、強制パスワード変更、認可（職員 `/admin`=403・停止の即時無効化）、
+- **自動テスト**: `pytest` **82 件すべて成功**（`tests/`）。
+- 観点: ログイン/セッション衛生、強制パスワード変更、認可（職員 `/admin`・`/logs`・`/submissions`・`/confirm`=403・停止の即時無効化）、
   `manage_users` の各保護、入力範囲外（month=13 等）で 500 にならない、
-  V27 のパスワード方針・CSP・HSTS・ID 列挙対策（`tests/test_hardening.py`）。
+  V27 のパスワード方針・CSP・HSTS・ID 列挙対策、
+  V28 の CSP nonce（script に `'unsafe-inline'` 無し）・`no-store`・idle timeout（`tests/test_hardening.py`）、
+  監査ログの機密値非記録・認可・retention（`tests/test_audit.py`）、提出状況（`tests/test_submissions.py`）、
+  確定シフトの保存・読み取り専用閲覧・認可（`tests/test_confirm.py`）、username backfill 移行（`tests/test_db.py`）。
 
 ---
 
-## 6. 残課題・受容リスク・次フェーズ
+## 6. 残課題・受容リスク
 
-試用規模（4 名・社内）では下記を**受容**し、本運用に向けて順次対応する。
+V28 で解消済み: **idle timeout** / **CSP の script `'unsafe-inline'`** / **操作の監査ログ** / **シフトの表示名紐づけ**（`username` 化）。
+採用した次フェーズ機能（希望/確定の分離・提出状況の一覧・操作ログ）も実装済み。
 
-- **セッションの自動ログアウト（idle timeout）未設定** — 個人端末の置き忘れ対策。次フェーズで `PERMANENT_SESSION_LIFETIME` を検討。
-- **CSP が `'unsafe-inline'`** — inline script/style のため。nonce 方式へ移行すれば XSS 防御がさらに堅くなる（次フェーズ）。
-- **レート制限はインスタンス内メモリ** — 再起動でカウンタ初期化。単一インスタンス運用なので実害は小。多重化時は Redis を使用。
-- **アカウントロックなし（レート制限のみ）／2FA なし** — 試用規模では受容。
-- **操作の監査ログなし** — 「誰がいつ何をしたか」の記録は次フェーズ候補。
-- **シフトを表示名で管理** — 将来 `user_id` 化（確定シフト機能の導入時にあわせて）。
+現時点で**受容**しているリスク（小規模・社内運用のため）:
 
-### 次フェーズの機能候補（試用結果しだい）
-「シフト希望」と「確定シフト」の分離 / 提出状況の一覧 / 管理画面からのパスワード再発行 / 操作ログ。
+- **CSP の `style-src 'unsafe-inline'`** — inline `style=` 属性を多用しているため。撤去には全テンプレの CSS 化が必要で視覚回帰リスクが大きく、本アプリは未信頼スタイルの流入経路が無いため実利益が小さい。別タスクとして保留。script 側は nonce 化済みで XSS 実行防御の主要部分は達成。
+- **レート制限はインスタンス内メモリ** — 再起動でカウンタ初期化。単一インスタンス（`-w 1`＋ディスク制約）運用なので実害は小。多重化時は Redis。
+- **アカウントロックなし（レート制限のみ）／2FA なし** — ロック悪用による正規利用者の締め出し（DoS）を避けるためレート制限で代替。試用〜小規模では受容。
+- **管理画面からの専用パスワード再発行は未実装（保留）** — ユーザー編集時のパスワード設定（`must_change_password` 付き）＋ CLI で代替。使用時は `admin_password_set` を監査ログに記録。
+
+### デプロイ時の注意（一次ソース確認済み）
+- Render はディスク付与サービスで**ゼロダウンタイムにならない**（再デプロイ時に数秒停止）。低稼働時間帯に実施し、利用者へ事前告知する。
+- DB バックアップは disk snapshot restore ではなく **SQLite `.backup`** を使用（`sqlite3 /var/data/shift.db ".backup '/tmp/pre-deploy.db'"`）。デプロイ前に取得し、`PRAGMA integrity_check;` で健全性を確認する。移行は非破壊（列追加＋backfill・`name` 残置）のため後方互換。

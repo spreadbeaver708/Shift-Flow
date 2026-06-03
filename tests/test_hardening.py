@@ -71,3 +71,63 @@ def test_login_unknown_user_generic_and_no_session(client):
     assert "正しくありません" in resp.get_data(as_text=True)
     with client.session_transaction() as s:
         assert "username" not in s
+
+
+# ===== V28: セキュリティ基盤の追加検証 =====
+
+
+def test_csp_script_nonce_and_no_unsafe_inline(client):
+    """V28: script-src は nonce 方式で 'unsafe-inline' を含まない。base-uri は 'none'。
+    style-src は当面 'unsafe-inline' を維持（撤去は別タスク）。"""
+    resp = client.get("/login")
+    csp = resp.headers.get("Content-Security-Policy", "")
+    script_dir = csp.split("script-src", 1)[1].split(";", 1)[0]
+    assert "'nonce-" in script_dir
+    assert "'unsafe-inline'" not in script_dir
+    assert "base-uri 'none'" in csp
+    assert "style-src 'self' 'unsafe-inline'" in csp
+
+
+def test_rendered_script_tags_carry_matching_nonce(admin_client):
+    """V28: 描画 HTML の全 <script> が CSP ヘッダと同じ nonce を持ち、裸の <script> が無い。"""
+    import re
+
+    resp = admin_client.get("/")
+    csp = resp.headers.get("Content-Security-Policy", "")
+    m = re.search(r"script-src[^;]*'nonce-([^']+)'", csp)
+    assert m, "CSP に nonce が無い"
+    nonce = m.group(1)
+    body = resp.get_data(as_text=True)
+    nonces = re.findall(r'<script nonce="([^"]+)"', body)
+    assert nonces, "ページに <script nonce> が無い"
+    assert all(n == nonce for n in nonces)
+    assert "<script>" not in body, "nonce 無しの <script> が残っている"
+
+
+def test_authenticated_page_has_no_store(admin_client):
+    """V28: 認証済みページは Cache-Control: no-store。"""
+    resp = admin_client.get("/menu")
+    assert resp.headers.get("Cache-Control") == "no-store"
+
+
+def test_login_page_is_not_no_store(client):
+    """V28: 未認証の login ページには no-store を付けない（過剰適用しない）。"""
+    resp = client.get("/login")
+    assert resp.headers.get("Cache-Control") != "no-store"
+
+
+def test_session_idle_timeout_configured(app_module):
+    """V28: アイドルタイムアウト用の設定が入っている。"""
+    from datetime import timedelta
+
+    lifetime = app_module.app.config["PERMANENT_SESSION_LIFETIME"]
+    assert isinstance(lifetime, timedelta)
+    assert lifetime.total_seconds() > 0
+    assert app_module.app.config["SESSION_COOKIE_NAME"] == "sfid"
+
+
+def test_login_marks_session_permanent(client, login):
+    """V28: ログイン成功でセッションが permanent（PERMANENT_SESSION_LIFETIME 適用）になる。"""
+    login("admin", "adminpass1")
+    with client.session_transaction() as s:
+        assert s.permanent is True

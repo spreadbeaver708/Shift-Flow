@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <title>確定シフト</title>
+</head>
+<body>
+    <div class="container">
+        <h1>確定シフト（{{ year }}/{{ month }}）</h1>
+        <a href="{{ url_for('menu') }}" class="btn-back">← メニューに戻る</a>
+
+        <div style="display: flex; gap: 8px; margin-bottom: 20px; justify-content: center;">
+            <a href="{{ url_for('confirmed', year=now_y, month=now_m) }}" class="btn-month {% if year==now_y and month==now_m %}active-month{% endif %}" style="background: var(--entry); border-bottom-color: #388E3C;">今月 ({{ now_m }}月)</a>
+            <a href="{{ url_for('confirmed', year=next_y, month=next_m) }}" class="btn-month {% if year==next_y and month==next_m %}active-month{% endif %}" style="background: var(--confirm); border-bottom-color: #E68A00;">翌月 ({{ next_m }}月)</a>
+        </div>
+
+        <p style="color:#888; font-size:0.85rem;">出勤として確定した人を表示しています（読み取り専用）。</p>
+
+        <table class="calendar-table">
+            <tr><th>日</th><th>月</th><th>火</th><th>水</th><th>木</th><th>金</th><th>土</th></tr>
+            {% for week in cal %}
+            <tr>
+                {% for day in week %}
+                <td>
+                    {% if day != 0 %}
+                        <b style="display:block; border-bottom:1px solid #f0f0f0; margin-bottom:3px;">{{ day }}</b>
+                        {% for row in rows %}
+                            {% if row[0] == day %}
+                                <div class="shift-tag" style="background:{{ row[2] }}; border-radius:6px; padding:2px 4px; margin:2px 0; font-size:0.8rem;">{{ row[1] }}</div>
+                            {% endif %}
+                        {% endfor %}
+                    {% endif %}
+                </td>
+                {% endfor %}
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+</body>
+</html>
