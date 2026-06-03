@@ -1,8 +1,11 @@
-Flask==3.1.0
 # セキュリティ修正を確実に取り込むための明示ピン
-#   Werkzeug 3.1.6: CVE-2025-66221（safe_join の Windows デバイス名）修正
-#   Jinja2 3.1.6:   CVE-2025-27516（サンドボックス回避）修正
-Werkzeug>=3.1.6
+#   Flask 3.1.3:    CVE-2026-27205（session を in/len 参照時に Vary: Cookie が欠落しキャッシュ汚染）修正。
+#                   本アプリは認証ページに Cache-Control: no-store を付与し緩和済みだが、確実化のため更新。
+#   Werkzeug 3.1.8: safe_join の Windows デバイス名系（CVE-2025-66221 / CVE-2026-21860 / CVE-2026-27199）を確実に回避。
+#                   本アプリは Linux 稼働＋ユーザー制御ファイルパス未使用のため非該当だが、確実化のためピン。
+#   Jinja2 3.1.6:   CVE-2025-27516（サンドボックス回避）修正。信頼できないテンプレートは描画しないため非該当だがピン。
+Flask==3.1.3
+Werkzeug>=3.1.8
 Jinja2>=3.1.6
 gunicorn==23.0.0
 Flask-WTF==1.2.1

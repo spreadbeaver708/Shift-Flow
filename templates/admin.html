@@ -41,7 +41,7 @@
             {% endfor %}
         </table>
     </div>
-    <script>
+    <script nonce="{{ csp_nonce }}">
     // E: onclick への値埋め込みを廃止し、dataset 経由で安全に取り出す
     document.querySelectorAll('.shift-tag-remark').forEach(function(el) {
         el.addEventListener('click', function(e) {

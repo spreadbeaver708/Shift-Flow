@@ -60,3 +60,19 @@ def test_worker_html_has_no_inline_onclick(admin_client, app_module):
     assert "onclick=" not in body
     assert 'id="remarkModal"' in body
     assert 'id="modalSaveBtn"' in body
+
+
+def test_menu_unsubmitted_uses_username(admin_client):
+    """V28: メニューの未提出判定は username 基準。翌月分を提出すると警告が消える。"""
+    from datetime import datetime, timedelta
+
+    now = datetime.now()
+    nd = datetime(now.year, now.month, 1) + timedelta(days=32)
+    ny, nm = nd.year, nd.month
+    # 提出前: 未提出の警告が出る
+    assert "未提出" in admin_client.get("/menu").get_data(as_text=True)
+    # 翌月分を提出（開室日が必ず含まれるよう全日 〇 を送る。safe_ym は query から読む）
+    data = {f"day_{d}": "〇" for d in range(1, 32)}
+    admin_client.post(f"/?year={ny}&month={nm}", data=data)
+    # 提出後: 警告が消える
+    assert "未提出" not in admin_client.get("/menu").get_data(as_text=True)

@@ -69,7 +69,7 @@
             <code>sqlite3</code> で行う運用にしています（取り返しがつかない事故を防ぐため）。
         </p>
     </div>
-    <script>
+    <script nonce="{{ csp_nonce }}">
     // A: 編集時にパスワードはサーバから送らない。data-* 属性で値を渡し、パスワード欄は空欄。
     // V20: 編集モードでは f_id を readonly にし、mode/original_username を hidden に書き込む。
     var fId   = document.getElementById('f_id');
