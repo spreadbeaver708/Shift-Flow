@@ -32,6 +32,10 @@ services:
         value: "1"                  # Render はプロキシ経由のため 1（HTTPS判定とIP別レート制限に必要）
       - key: SESSION_IDLE_MINUTES
         value: "30"                 # 無操作でこの分数を過ぎると自動ログアウト（個人端末の置き忘れ対策）
+      - key: TRUST_CF_CONNECTING_IP
+        value: "1"                  # 前段がCloudflare/Renderエッジのため、真のクライアントIPを CF-Connecting-IP から取得（レート制限・監査ログの精度）
+      - key: LOGIN_RATE_LIMIT
+        value: "20 per minute"      # ログイン試行の上限（10名運用で締め出されにくく）。必要なら調整
       - key: PYTHON_VERSION
         value: "3.14.5"             # 3.14.5 で GC が generational に戻り本番のメモリ挙動が安定（動作再現性のため固定）
       - key: SECRET_KEY

@@ -1,3 +1,5 @@
 # V22: 開発・テスト用依存（本番には不要）
 -r requirements.txt
 pytest>=8.0
+# V29: 依存脆弱性の継続監査（PyPA公式）。リリース前に `pip-audit -r requirements.txt` を実行。
+pip-audit>=2.7

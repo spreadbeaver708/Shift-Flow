@@ -1,6 +1,6 @@
 # Shift-Flow セキュリティレビュー（現状版）
 
-最終更新: 2026-06-03 / 対象: Render 公開・4 名試用中（次フェーズ V28 反映）
+最終更新: 2026-06-03 / 対象: Render 公開・**10 名実運用へ移行**（V29 反映）
 
 このドキュメントは「いまの実装で、何から守れているか」を簡潔にまとめたものです。
 過去の指摘ひとつひとつの経緯（初期レビュー A〜S や各フェーズの履歴）は Git の履歴を参照してください。
@@ -12,7 +12,7 @@
 - **アプリ**: Flask + 標準ライブラリ `sqlite3`（単一ファイル `app.py`）
 - **公開**: Render Web Service（Starter）+ 永続ディスク `/var/data`。HTTPS は Render が終端
 - **DB**: SQLite（WAL モード）。`/var/data/shift.db` に保存
-- **利用者**: 管理者 + 職員 計 10 名弱（試用は 4 名）。各自の個人端末から利用
+- **利用者**: 管理者 + 職員 計 10 名前後（実運用）。各自の個人端末から利用。**前段に Cloudflare/Render エッジ**
 - **守る資産**: ログイン資格情報（ハッシュ）、シフト希望、備考。**備考に機微情報を入れない運用**を併用
 
 ---
@@ -24,7 +24,7 @@
 | 認証 | パスワードは **scrypt** でハッシュ化（Werkzeug 既定 `scrypt:32768:8:1`）。平文保存・平文送信なし | `generate_password_hash` |
 | 認証 | ログイン成功時に **`session.clear()`** で旧セッション破棄（セッション固定対策）。session には username のみ保持 | `login()` |
 | 認証 | 初回ログイン／管理者リセット後は **パスワード強制変更**まで他画面に進めない | `force_password_change` |
-| 認可 | ルートごとに `require_login()` / `require_admin()`。職員の `/admin` は **403** | 各ルート |
+| 認可 | 管理者ルートは共通ガード `deny_if_not_admin()` で「未ログイン→login／職員→**403**」に統一。403 は `authz_fail` を監査記録 | `deny_if_not_admin` |
 | 認可 | `/worker/<name>` は **本人の表示名のみ**許可（他人の画面は menu へ）＝ IDOR 対策 | `worker()` |
 | 認可 | 毎リクエストで DB からユーザー状態を再取得。**停止・降格は即時反映**（旧セッション無効化） | `load_current_user` |
 | 管理操作 | 自分自身／最後の有効な管理者は**降格・停止不可**。編集は `original_username` を権威とし **ID 改ざん不可**。表示名の重複拒否。UI からの削除は無効化 | `manage_users()` |
@@ -35,8 +35,9 @@
 | リダイレクト | 送信後の遷移先は `url_for()` でサーバー生成。**ユーザー制御不可**（オープンリダイレクトなし） | `_remark_modal.html` |
 | 秘密情報 | `SECRET_KEY` 未設定なら本番は **起動失敗（fail-fast）**。Render では自動生成 | 起動時 |
 | 本番化 | 本番で `debug` 実行を禁止。Cookie は `Secure`(本番)/`HttpOnly`/`SameSite=Lax`。`ProxyFix` は信頼段数明示時のみ | 起動時 |
-| エラー | 403/404/500 はカスタムページ。スタックトレースを出さない | エラーハンドラ |
-| レート制限 | ログイン・パスワード変更を **10 回/分**で制限（`-w 1`・単一インスタンスでカウンタ整合） | `@limiter.limit` |
+| エラー | 403/404/413/500 はカスタムページ。スタックトレースを出さない | エラーハンドラ |
+| レート制限 | ログイン `LOGIN_RATE_LIMIT`(既定 **20/分**)・パスワード変更 **10/分**。キーは `client_ip`（`CF-Connecting-IP` 優先）。`-w 1`・単一インスタンスでカウンタ整合 | `@limiter.limit` |
+| 本文上限 | `MAX_CONTENT_LENGTH=256KB`＋413。メモリ枯渇DoSの深層防御 | 起動時 |
 
 ---
 
@@ -68,6 +69,22 @@
 
 ---
 
+## 3.6 実運用移行（V29）の強化
+
+| 強化 | 内容 | 重大度 |
+|------|------|--------|
+| 認可の統一＋監査 | 管理者ルート(`/`・`/admin`・`/manage_users`・`/logs`・`/submissions`・`/confirm*`)を共通ガード `deny_if_not_admin()` で「未ログイン→login／職員→403」に統一。403 を `authz_fail`(path/actor/ip) として監査記録 | 中 |
+| クライアントIP精度 | 前段 Cloudflare のため `client_ip()` が `CF-Connecting-IP`（元クライアントIP）を優先（env `TRUST_CF_CONNECTING_IP=1`・明示信頼）。レート制限キー／監査ログIPを実IPに | 中 |
+| ログインレート可変 | `LOGIN_RATE_LIMIT`（既定 `20/分`）で調整可能に（10名運用での締め出し回避）。PW変更は 10/分維持 | 低 |
+| 本文サイズ上限 | `MAX_CONTENT_LENGTH=256KB`＋413 親切ページ。Werkzeug 既定(form 500KB/1000parts)に加え本文総量を早期に弾く深層防御 | 低 |
+| キャッシュ単純化 | `no-store` を認証済みのみ→**全動的応答**（static除く）へ拡大。login の CSRF トークン鮮度・CVE-2026-27205 緩和 | 低 |
+| 起動時自動バックアップ | 起動毎に `/var/data/backups/` へ SQLite Backup API でコピー（最新 `BACKUP_KEEP`=14 世代）。**非致命**。移行/破損/誤操作の復元点。ディスク全損は Render 日次スナップショットが補完 | 中 |
+| `__Host-` クッキー | 本番のみ `__Host-sfid`（Secure/Path=/・Domain無）でサブドメイン由来のクッキー注入耐性向上 | 低 |
+| 表示名 UNIQUE 索引 | `users.name` に UNIQUE 索引（既存重複0件時のみ作成）でアプリ検証を二重化 | 低 |
+| 依存監査の継続化 | `pip-audit`（PyPA公式）を dev 依存に追加し、リリース前チェックに | 低 |
+
+---
+
 ## 4. 依存パッケージと既知脆弱性（一次ソース確認済み）
 
 | パッケージ | バージョン | 状況 |
@@ -79,26 +96,28 @@
 | Flask-Limiter | 3.8.0 | レート制限用。既知の重大 CVE なし |
 | gunicorn | 23.0.0 | 既知の重大 CVE なし |
 
-> 参考（一次ソース）: GitHub Advisory `GHSA-68rp-wp8r-4726`（CVE-2026-27205, Flask）、`GHSA-4grg-w6v8-c28g`（CVE-2025-47278, Flask 鍵フォールバック・非該当）、`GHSA-hgf8-39gv-g3f2`（CVE-2025-66221, Werkzeug）、Werkzeug 3.1.x 公式ドキュメント（`generate_password_hash` 既定 = scrypt）、Render Disks docs（ディスク付与でゼロダウンタイム不可・DB は `.backup` 推奨）。
+> 参考（一次ソース）: GitHub Advisory `GHSA-68rp-wp8r-4726`（CVE-2026-27205, Flask）、`GHSA-4grg-w6v8-c28g`（CVE-2025-47278, Flask 鍵フォールバック・非該当）、`GHSA-hgf8-39gv-g3f2`（CVE-2025-66221, Werkzeug）、Werkzeug 3.1.x 公式ドキュメント（`generate_password_hash` 既定 = scrypt / `MAX_FORM_MEMORY_SIZE`=500KB・`MAX_FORM_PARTS`=1000）、Render docs（Cloudflare/LB 経由・実IPは XFF/`CF-Connecting-IP`、ディスク付与でゼロダウンタイム不可・DB は `.backup` 推奨）。
+> **継続監査（V29）**: リリース前に `pip-audit -r requirements.txt`（PyPA公式・PyPI Advisory DB）。重大度は付かないため手動で確認する。即時のバージョン追従はせず、監査結果に基づき最小更新する。
 
 ---
 
 ## 5. 検証
 
-- **自動テスト**: `pytest` **82 件すべて成功**（`tests/`）。
+- **自動テスト**: `pytest` **94 件すべて成功**（`tests/`）。
 - 観点: ログイン/セッション衛生、強制パスワード変更、認可（職員 `/admin`・`/logs`・`/submissions`・`/confirm`=403・停止の即時無効化）、
   `manage_users` の各保護、入力範囲外（month=13 等）で 500 にならない、
   V27 のパスワード方針・CSP・HSTS・ID 列挙対策、
   V28 の CSP nonce（script に `'unsafe-inline'` 無し）・`no-store`・idle timeout（`tests/test_hardening.py`）、
   監査ログの機密値非記録・認可・retention（`tests/test_audit.py`）、提出状況（`tests/test_submissions.py`）、
-  確定シフトの保存・読み取り専用閲覧・認可（`tests/test_confirm.py`）、username backfill 移行（`tests/test_db.py`）。
+  確定シフトの保存・読み取り専用閲覧・認可（`tests/test_confirm.py`）、username backfill 移行（`tests/test_db.py`）、
+  V29 の `client_ip`（CF 優先/非信頼時フォールバック）・職員の `/`・`/manage_users`=403＋`authz_fail`・`MAX_CONTENT_LENGTH`→413・`backup_db` 世代保持＋健全性・`users.name` UNIQUE 索引（`tests/test_v29.py`）。
 
 ---
 
 ## 6. 残課題・受容リスク
 
-V28 で解消済み: **idle timeout** / **CSP の script `'unsafe-inline'`** / **操作の監査ログ** / **シフトの表示名紐づけ**（`username` 化）。
-採用した次フェーズ機能（希望/確定の分離・提出状況の一覧・操作ログ）も実装済み。
+V28 で解消: idle timeout / CSP の script `'unsafe-inline'` / 操作の監査ログ / シフトの表示名紐づけ（`username` 化）。
+**V29 で解消**: 認可の不統一（`/`・`/manage_users` も 403＋`authz_fail`）／ クライアントIP精度（`CF-Connecting-IP`）／ 本文サイズ上限（413）／ バックアップ自動化（起動時）／ 依存の継続監査（pip-audit）。
 
 現時点で**受容**しているリスク（小規模・社内運用のため）:
 
@@ -107,6 +126,20 @@ V28 で解消済み: **idle timeout** / **CSP の script `'unsafe-inline'`** / *
 - **アカウントロックなし（レート制限のみ）／2FA なし** — ロック悪用による正規利用者の締め出し（DoS）を避けるためレート制限で代替。試用〜小規模では受容。
 - **管理画面からの専用パスワード再発行は未実装（保留）** — ユーザー編集時のパスワード設定（`must_change_password` 付き）＋ CLI で代替。使用時は `admin_password_set` を監査ログに記録。
 
+### バックアップ／復元（V29・自動化済み）
+- **起動時に自動取得**: 各デプロイ/再起動で `/var/data/backups/shift-*.db` を生成（最新 `BACKUP_KEEP`=14 世代）。デプロイ毎に復元点が残る。
+- **ディスクスナップショット復元は使わない**（DB が破損状態で戻る恐れ）。ディスク全損時の最終手段としてのみ Render 日次スナップショットを利用。
+- **月1回**、最新バックアップを Render Shell から手元へ**ダウンロード**し `sqlite3 <file> "PRAGMA integrity_check;"`（`ok` 確認）。`/tmp` は即時一時用途のみ・永続は `/var/data`。
+- **復元手順**: コードを前リビジョンへロールバック（移行は非破壊・後方互換）＋必要時のみサービス停止中に `cp /var/data/backups/<good>.db /var/data/shift.db`。
+
 ### デプロイ時の注意（一次ソース確認済み）
 - Render はディスク付与サービスで**ゼロダウンタイムにならない**（再デプロイ時に数秒停止）。低稼働時間帯に実施し、利用者へ事前告知する。
-- DB バックアップは disk snapshot restore ではなく **SQLite `.backup`** を使用（`sqlite3 /var/data/shift.db ".backup '/tmp/pre-deploy.db'"`）。デプロイ前に取得し、`PRAGMA integrity_check;` で健全性を確認する。移行は非破壊（列追加＋backfill・`name` 残置）のため後方互換。
+- 移行は非破壊（列追加＋backfill・`name` 残置）のため後方互換。
+
+### 10 名 実運用前チェックリスト
+- [ ] 本番 `/logs` の IP 列が**利用者ごとの実IP**か（`TRUST_CF_CONNECTING_IP=1` の効果確認。共有IPなら `LOGIN_RATE_LIMIT` を引き上げ）
+- [ ] Render Shell で `/var/data/backups/` に起動時バックアップが生成され、最新が `integrity_check=ok`
+- [ ] `ADMIN_INIT_PASSWORD` を本番 env から削除（admin 作成済みで不要）
+- [ ] `pip-audit -r requirements.txt` がクリーン
+- [ ] スモーク: `/healthz`→管理者ログイン→希望提出→提出状況→確定保存→職員で確定閲覧→操作ログ→ヘッダ(CSP/HSTS/no-store)
+- [ ] 備考に機微情報を書かない運用を 10 名へ周知
