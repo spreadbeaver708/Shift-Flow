@@ -41,4 +41,4 @@ services:
       - key: SECRET_KEY
         generateValue: true         # Render が安全なランダム値を自動生成（手入力不要）
       - key: ADMIN_INIT_PASSWORD
-        sync: false                 # 秘密の値。デプロイ前に Render の画面で手入力する
+        sync: false                 # 秘密の値。初回デプロイ前に手入力。admin 作成後は本番 env から削除推奨（以後は未使用）

@@ -5,6 +5,7 @@ import glob
 import secrets
 import sqlite3
 import calendar
+import ipaddress
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -110,10 +111,19 @@ TRUST_CF_CONNECTING_IP = os.environ.get("TRUST_CF_CONNECTING_IP", "0").strip().l
 
 
 def client_ip():
+    # V29: TRUST_CF_CONNECTING_IP=1 のときのみ CF-Connecting-IP を採用。ただし
+    # **妥当な IP アドレスとして検証できた場合に限る**（不正値は get_remote_address にフォールバック）。
+    # 偽装の根本防止はエッジ(Cloudflare/Render)がこのヘッダを上書きすること。検証は深層防御で、
+    # 不正値が監査ログ/レート制限キーに混入するのを防ぐ。
     if TRUST_CF_CONNECTING_IP:
         cf = request.headers.get("CF-Connecting-IP")
         if cf:
-            return cf.split(",")[0].strip()[:64]
+            candidate = cf.split(",")[0].strip()
+            try:
+                ipaddress.ip_address(candidate)
+                return candidate
+            except ValueError:
+                pass
     return get_remote_address()
 
 
@@ -147,6 +157,9 @@ try:
     BACKUP_KEEP = int(os.environ.get("BACKUP_KEEP", "14"))
 except ValueError:
     BACKUP_KEEP = 14
+if BACKUP_KEEP < 1:
+    # V29: 0/負数で剪定が無効化されディスクを圧迫しないよう、最低 1 世代に clamp。
+    BACKUP_KEEP = 1
 BACKUP_ON_STARTUP = os.environ.get(
     "BACKUP_ON_STARTUP", "1" if IS_PROD else "0"
 ).strip().lower() in ("1", "true", "yes")

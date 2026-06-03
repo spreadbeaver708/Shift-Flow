@@ -57,6 +57,33 @@ def test_client_ip_prefers_cf_when_trusted(monkeypatch, tmp_path):
         sys.modules.pop("app", None)
 
 
+def test_client_ip_rejects_malformed_cf_header(monkeypatch, tmp_path):
+    """V29: 信頼設定中でも不正な CF-Connecting-IP は採用せず remote_addr へフォールバック。
+    妥当な IPv6 は採用する（ipaddress 検証）。"""
+    monkeypatch.setenv("APP_ENV", "development")
+    monkeypatch.setenv("SECRET_KEY", secrets.token_hex(16))
+    monkeypatch.setenv("SHIFT_DB_PATH", str(tmp_path / "shift.db"))
+    monkeypatch.setenv("ADMIN_INIT_PASSWORD", "adminpass1")
+    monkeypatch.setenv("RATELIMIT_STORAGE_URI", "memory://")
+    monkeypatch.setenv("TRUSTED_PROXY_HOPS", "0")
+    monkeypatch.setenv("TRUST_CF_CONNECTING_IP", "1")
+    sys.modules.pop("app", None)
+    mod = importlib.import_module("app")
+    try:
+        with mod.app.test_request_context(
+            "/",
+            headers={"CF-Connecting-IP": "not-an-ip<script>"},
+            environ_overrides={"REMOTE_ADDR": "198.51.100.5"},
+        ):
+            assert mod.client_ip() == "198.51.100.5"  # 不正値→フォールバック
+        with mod.app.test_request_context(
+            "/", headers={"CF-Connecting-IP": "2001:db8::1"}
+        ):
+            assert mod.client_ip() == "2001:db8::1"  # 妥当な IPv6 は採用
+    finally:
+        sys.modules.pop("app", None)
+
+
 def test_client_ip_ignores_cf_when_not_trusted(app_module):
     """既定（信頼しない）では CF ヘッダを無視し remote_addr を使う（偽装防止）。"""
     with app_module.app.test_request_context(
@@ -145,3 +172,20 @@ def test_users_name_unique_index_present(app_module):
             "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_users_name'"
         ).fetchone()
     assert idx is not None
+
+
+def test_backup_keep_clamped_to_min_1(monkeypatch, tmp_path):
+    """V29: BACKUP_KEEP=0/負数は剪定無効化に倒れず最低 1 に clamp される。"""
+    monkeypatch.setenv("APP_ENV", "development")
+    monkeypatch.setenv("SECRET_KEY", secrets.token_hex(16))
+    monkeypatch.setenv("SHIFT_DB_PATH", str(tmp_path / "shift.db"))
+    monkeypatch.setenv("ADMIN_INIT_PASSWORD", "adminpass1")
+    monkeypatch.setenv("RATELIMIT_STORAGE_URI", "memory://")
+    monkeypatch.setenv("TRUSTED_PROXY_HOPS", "0")
+    monkeypatch.setenv("BACKUP_KEEP", "0")
+    sys.modules.pop("app", None)
+    mod = importlib.import_module("app")
+    try:
+        assert mod.BACKUP_KEEP == 1
+    finally:
+        sys.modules.pop("app", None)

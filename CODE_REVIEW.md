@@ -130,7 +130,7 @@ V28 で解消: idle timeout / CSP の script `'unsafe-inline'` / 操作の監査
 - **起動時に自動取得**: 各デプロイ/再起動で `/var/data/backups/shift-*.db` を生成（最新 `BACKUP_KEEP`=14 世代）。デプロイ毎に復元点が残る。
 - **ディスクスナップショット復元は使わない**（DB が破損状態で戻る恐れ）。ディスク全損時の最終手段としてのみ Render 日次スナップショットを利用。
 - **月1回**、最新バックアップを Render Shell から手元へ**ダウンロード**し `sqlite3 <file> "PRAGMA integrity_check;"`（`ok` 確認）。`/tmp` は即時一時用途のみ・永続は `/var/data`。
-- **復元手順**: コードを前リビジョンへロールバック（移行は非破壊・後方互換）＋必要時のみサービス停止中に `cp /var/data/backups/<good>.db /var/data/shift.db`。
+- **復元手順**（WAL 利用のため手順厳守）: ① サービス停止 → ② 現状退避（`shift.db`・`shift.db-wal`・`shift.db-shm` を別名コピー）→ ③ `cp /var/data/backups/<good>.db /var/data/shift.db` → ④ **古い `shift.db-wal` と `shift.db-shm` を削除**（残すと新DBに古いWALが適用され破損の恐れ）→ ⑤ 再起動。コードを前リビジョンへ戻す場合は併せて実施（移行は非破壊・後方互換）。
 
 ### デプロイ時の注意（一次ソース確認済み）
 - Render はディスク付与サービスで**ゼロダウンタイムにならない**（再デプロイ時に数秒停止）。低稼働時間帯に実施し、利用者へ事前告知する。

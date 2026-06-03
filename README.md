@@ -23,7 +23,7 @@
 GitHub にコードを push すると、**Render が自動で再公開**します（HTTPS つき）。
 
 - 設定はすべて **`render.yaml`** に書いてあり、Render が自動で読み込みます。
-- 手で入力する秘密の値は **`ADMIN_INIT_PASSWORD`（管理者の初期パスワード）だけ**。
+- 手で入力する秘密の値は **`ADMIN_INIT_PASSWORD`（管理者の初期パスワード）だけ**。**admin 作成後は本番 env から削除推奨**（以後は使われません）。
 - データは Render の **永続ディスク `/var/data/shift.db`** に保存され、再公開しても消えません。
 
 ---
@@ -121,7 +121,7 @@ pip-audit -r requirements.txt
 | `APP_ENV` | 本番は `production` |
 | `SECRET_KEY` | セッション署名鍵（Render が自動生成） |
 | `SHIFT_DB_PATH` | DB の場所（Render は `/var/data/shift.db`） |
-| `ADMIN_INIT_PASSWORD` | 管理者の初期パスワード |
+| `ADMIN_INIT_PASSWORD` | 管理者の初期パスワード（初回のみ使用。admin 作成後は削除推奨） |
 | `TRUSTED_PROXY_HOPS` | Render は `1` |
 | `SESSION_IDLE_MINUTES` | 無操作での自動ログアウト時間（既定 `30`） |
 | `TRUST_CF_CONNECTING_IP` | Cloudflare 経由で実クライアントIPを使う。Render は `1` |
@@ -131,7 +131,9 @@ pip-audit -r requirements.txt
 **職員の物理削除（必要時のみ・Render の「Shell」で実行）**:
 
 ```bash
-sqlite3 /var/data/shift.db ".backup '/tmp/pre-delete.db'"   # 先にバックアップ
+# 先に永続バックアップ＋健全性確認（/tmp は揮発するため /var/data/backups に置く）
+sqlite3 /var/data/shift.db ".backup '/var/data/backups/pre-delete-$(date +%Y%m%d).db'"
+sqlite3 /var/data/backups/pre-delete-$(date +%Y%m%d).db "PRAGMA integrity_check;"   # ok を確認
 sqlite3 /var/data/shift.db \
   "PRAGMA foreign_keys=ON; \
    DELETE FROM shifts WHERE username='対象ID'; \
