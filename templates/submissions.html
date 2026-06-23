@@ -1,52 +1,43 @@
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-    <title>提出状況</title>
-</head>
-<body>
-    <div class="container">
-        <h1>シフト希望の提出状況（{{ year }}/{{ month }}）</h1>
-        <a href="{{ url_for('menu') }}" class="btn-back">← メニューに戻る</a>
+{% extends "base.html" %}
+{% from "_macros.html" import back_link, month_switch %}
 
-        <div style="display: flex; gap: 8px; margin-bottom: 20px; justify-content: center;">
-            <a href="{{ url_for('submissions', year=now_y, month=now_m) }}" class="btn-month {% if year==now_y and month==now_m %}active-month{% endif %}" style="background: var(--entry); border-bottom-color: #388E3C;">今月 ({{ now_m }}月)</a>
-            <a href="{{ url_for('submissions', year=next_y, month=next_m) }}" class="btn-month {% if year==next_y and month==next_m %}active-month{% endif %}" style="background: var(--confirm); border-bottom-color: #E68A00;">翌月 ({{ next_m }}月)</a>
-        </div>
+{% block title %}提出状況{% endblock %}
 
-        {% if pending == 0 %}
-            <p style="color:green; text-align:center; font-weight:bold;">全員が提出済みです 🎉</p>
-        {% else %}
-            <p style="color:#c00; text-align:center; font-weight:bold;">未提出: {{ pending }} 名</p>
-        {% endif %}
+{% block content %}
+<header class="page-header">
+    <h1>提出状況</h1>
+    <p>{{ year }}年{{ month }}月のシフト希望です。</p>
+</header>
+{{ back_link(url_for('menu')) }}
+{{ month_switch(
+    url_for('submissions', year=now_y, month=now_m),
+    url_for('submissions', year=next_y, month=next_m),
+    year, month, now_y, now_m, next_y, next_m
+) }}
 
-        <table style="width:100%; border-collapse:collapse;">
-            <tr style="background:#f0f0f0; text-align:left;">
-                <th style="padding:8px;">お名前</th>
-                <th style="padding:8px; text-align:center;">状況</th>
-                <th style="padding:8px; text-align:center;">〇の日数</th>
-                <th style="padding:8px;">最終提出(UTC)</th>
-            </tr>
-            {% for it in items %}
-            <tr style="border-bottom:1px solid #eee;">
-                <td style="padding:8px;">
-                    <b>{{ it.name }}</b>
-                    {% if it.role == 'admin' %}<span style="color:#999; font-size:0.75rem;">(管理者)</span>{% endif %}
-                </td>
-                <td style="padding:8px; text-align:center;">
-                    {% if it.submitted %}
-                        <span style="color:#fff; background:#4CAF50; padding:3px 10px; border-radius:12px; font-size:0.8rem;">提出済</span>
-                    {% else %}
-                        <span style="color:#fff; background:#FF5722; padding:3px 10px; border-radius:12px; font-size:0.8rem;">未提出</span>
-                    {% endif %}
-                </td>
-                <td style="padding:8px; text-align:center;">{% if it.submitted %}{{ it.ok }}{% else %}—{% endif %}</td>
-                <td style="padding:8px; color:#666; font-size:0.85rem;">{{ it.last or '—' }}</td>
-            </tr>
-            {% endfor %}
-        </table>
-    </div>
-</body>
-</html>
+{% if pending == 0 %}
+<div class="notice notice-success" role="status">全員が提出済みです。</div>
+{% else %}
+<div class="notice notice-warning" role="status">未提出は{{ pending }}名です。</div>
+{% endif %}
+
+<div class="table-scroll">
+<table class="data-table">
+    <thead>
+        <tr><th>名前</th><th>状況</th><th>〇の日数</th><th>最終提出（JST）</th></tr>
+    </thead>
+    <tbody>
+    {% for item in items %}
+        <tr>
+            <td><strong>{{ item.name }}</strong>{% if item.role == 'admin' %} <small>管理者</small>{% endif %}</td>
+            <td><span class="status-badge {% if item.submitted %}is-done{% else %}is-pending{% endif %}">
+                {{ '提出済み' if item.submitted else '未提出' }}
+            </span></td>
+            <td>{{ item.ok if item.submitted else '—' }}</td>
+            <td>{{ item.last or '—' }}</td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+</div>
+{% endblock %}

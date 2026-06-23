@@ -1,6 +1,8 @@
-"""ログイン / change_password / セッション衛生のテスト（A, P, Q, V1, V8, V11, V23）。"""
+"""ログイン、パスワード変更、セッション衛生のテスト。"""
 
-from flask import session
+from datetime import timedelta
+
+from time_utils import now_utc
 
 
 def test_login_success_clears_session_and_only_username_stored(client, login, app_module):
@@ -9,7 +11,7 @@ def test_login_success_clears_session_and_only_username_stored(client, login, ap
     """
     with client.session_transaction() as s:
         s["leftover"] = "old_value"
-    resp = login("admin", "adminpass1")
+    resp = login("admin", "Admin-Initial-Passphrase-2026")
     assert resp.status_code == 302
     with client.session_transaction() as s:
         assert s.get("username") == "admin"
@@ -47,7 +49,7 @@ def test_change_password_post_requires_login(client):
 def test_must_change_password_forces_redirect(client, login):
     """V23: 初回 admin は must_change_password=1。menu/admin/manage_users 等は強制的に
     /change_password へリダイレクトされる。"""
-    login("admin", "adminpass1")
+    login("admin", "Admin-Initial-Passphrase-2026")
     for path in ("/menu", "/", "/admin", "/manage_users"):
         resp = client.get(path, follow_redirects=False)
         assert resp.status_code == 302, path
@@ -55,22 +57,22 @@ def test_must_change_password_forces_redirect(client, login):
 
 
 def test_must_change_password_allows_change_logout_help(client, login):
-    """V23: change_password / logout / help / static は強制リダイレクトの対象外。"""
-    login("admin", "adminpass1")
+    """パスワード変更、POSTログアウト、ヘルプは強制リダイレクトの対象外。"""
+    login("admin", "Admin-Initial-Passphrase-2026")
     for path in ("/change_password", "/help"):
         resp = client.get(path, follow_redirects=False)
         assert resp.status_code == 200, path
-    resp = client.get("/logout", follow_redirects=False)
+    resp = client.post("/logout", follow_redirects=False)
     assert resp.status_code == 302
     assert "/login" in resp.headers["Location"]
 
 
 def test_change_password_clears_flag_and_session(client, login, app_module):
     """V23: 変更成功で must_change_password=0、セッションは破棄されログインへ。"""
-    login("admin", "adminpass1")
+    login("admin", "Admin-Initial-Passphrase-2026")
     resp = client.post(
         "/change_password",
-        data={"password_current": "adminpass1", "password_new": "newpass99"},
+        data={"password_current": "Admin-Initial-Passphrase-2026", "password_new": "New-Admin-Passphrase-2026"},
         follow_redirects=False,
     )
     assert resp.status_code == 302
@@ -79,20 +81,20 @@ def test_change_password_clears_flag_and_session(client, login, app_module):
     with client.session_transaction() as s:
         assert "username" not in s
     # 旧パスワードではログインできない
-    resp_old = login("admin", "adminpass1")
+    resp_old = login("admin", "Admin-Initial-Passphrase-2026")
     assert resp_old.status_code == 200
     # 新パスワードでログイン可能 → must_change_password が解除されている
-    resp_new = login("admin", "newpass99")
+    resp_new = login("admin", "New-Admin-Passphrase-2026")
     assert resp_new.status_code == 302
     resp_menu = client.get("/menu", follow_redirects=False)
     assert resp_menu.status_code == 200
 
 
 def test_change_password_rejects_short_password(client, login):
-    login("admin", "adminpass1")
+    login("admin", "Admin-Initial-Passphrase-2026")
     resp = client.post(
         "/change_password",
-        data={"password_current": "adminpass1", "password_new": "abc"},
+        data={"password_current": "Admin-Initial-Passphrase-2026", "password_new": "abc"},
         follow_redirects=False,
     )
     assert resp.status_code == 200
@@ -100,10 +102,10 @@ def test_change_password_rejects_short_password(client, login):
 
 
 def test_change_password_rejects_wrong_current(client, login):
-    login("admin", "adminpass1")
+    login("admin", "Admin-Initial-Passphrase-2026")
     resp = client.post(
         "/change_password",
-        data={"password_current": "WRONG", "password_new": "newpass99"},
+        data={"password_current": "WRONG", "password_new": "New-Admin-Passphrase-2026"},
         follow_redirects=False,
     )
     assert resp.status_code == 200
@@ -117,9 +119,70 @@ def test_worker_redirects_to_menu_when_accessing_other(admin_client):
 
 
 def test_logout_clears_session(admin_client):
-    admin_client.get("/logout")
+    admin_client.post("/logout")
     with admin_client.session_transaction() as s:
         assert "username" not in s
+
+
+def test_get_logout_does_not_change_session(admin_client):
+    resp = admin_client.get("/logout", follow_redirects=False)
+    assert resp.status_code == 302
+    assert "/menu" in resp.headers["Location"]
+    with admin_client.session_transaction() as session_data:
+        assert session_data["username"] == "admin"
+
+
+def test_absolute_session_timeout_requires_login(admin_client):
+    with admin_client.session_transaction() as session_data:
+        session_data["authenticated_at"] = (
+            now_utc() - timedelta(hours=25)
+        ).isoformat(timespec="seconds")
+    resp = admin_client.get("/menu", follow_redirects=False)
+    assert resp.status_code == 302
+    assert "/login" in resp.headers["Location"]
+
+
+def test_malformed_absolute_session_timestamp_fails_closed(admin_client):
+    with admin_client.session_transaction() as session_data:
+        session_data["authenticated_at"] = "not-a-timestamp"
+    resp = admin_client.get("/menu", follow_redirects=False)
+    assert resp.status_code == 302
+    assert "/login" in resp.headers["Location"]
+    with admin_client.session_transaction() as session_data:
+        assert "username" not in session_data
+
+
+def test_naive_absolute_session_timestamp_fails_closed(admin_client):
+    with admin_client.session_transaction() as session_data:
+        session_data["authenticated_at"] = "2026-06-23T10:00:00"
+    resp = admin_client.get("/menu", follow_redirects=False)
+    assert resp.status_code == 302
+    assert "/login" in resp.headers["Location"]
+
+
+def test_audit_failure_does_not_block_login_or_logout(
+    client, app_module, monkeypatch
+):
+    monkeypatch.setattr(
+        app_module,
+        "log_event",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            RuntimeError("audit unavailable")
+        ),
+    )
+    resp = client.post(
+        "/login",
+        data={
+            "username": "admin",
+            "password": "Admin-Initial-Passphrase-2026",
+        },
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302
+    resp = client.post("/logout", follow_redirects=False)
+    assert resp.status_code == 302
+    with client.session_transaction() as session_data:
+        assert "username" not in session_data
 
 
 def test_admin_html_does_not_contain_plaintext_password(admin_client, app_module):
@@ -127,5 +190,5 @@ def test_admin_html_does_not_contain_plaintext_password(admin_client, app_module
     resp = admin_client.get("/manage_users")
     assert resp.status_code == 200
     body = resp.get_data(as_text=True)
-    assert "adminpass1" not in body
-    assert "adminpass2" not in body
+    assert "Admin-Initial-Passphrase-2026" not in body
+    assert "Admin-Changed-Passphrase-2026" not in body

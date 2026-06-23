@@ -1,40 +1,32 @@
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-    <title>ログイン</title>
-</head>
-<body>
-    <div class="container" style="max-width: 400px; margin-top: 60px; padding: 30px;">
-        <h1 style="margin-bottom: 30px;">ログイン</h1>
-        
-        {% with msgs = get_flashed_messages() %}
-          {% if msgs %}<p style="color:green; text-align:center; font-weight:bold;">{{ msgs[0] }}</p>{% endif %}
-        {% endwith %}
+{% extends "base.html" %}
 
-        {% if error %}<p class="error">{{ error }}</p>{% endif %}
+{% block title %}ログイン{% endblock %}
+{% block container_class %}container-narrow{% endblock %}
 
-        <form method="post">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <div style="margin-bottom: 15px;">
-                <label style="display: block; font-weight: bold;">ユーザーID</label>
-                <input type="text" name="username" placeholder="IDを入力" required>
-            </div>
-            <div style="margin-bottom: 25px;">
-                <label style="display: block; font-weight: bold;">パスワード</label>
-                <input type="password" name="password" placeholder="パスワードを入力" required>
-            </div>
-            <button type="submit" class="menu-btn btn-entry" style="width: 100%; border: none;">ログイン</button>
-        </form>
+{% block content %}
+<header class="page-header">
+    <h1>ログイン</h1>
+    <p>管理者から渡されたIDとパスワードを入力します。</p>
+</header>
 
-        <div style="text-align:center; margin-top: 25px;">
-            <a href="{{ url_for('help_page') }}" style="color: #888; text-decoration: none; font-size: 0.85rem;">使い方を見る</a>
-        </div>
-        <p style="color:#888; font-size:0.8rem; text-align:center; margin-top: 15px; line-height:1.5;">
-            パスワードを変更するにはログイン後、メニュー画面の「パスワード変更」を使ってください。
-        </p>
+{% if error %}<div class="notice notice-error" role="alert">{{ error }}</div>{% endif %}
+
+<form method="post" class="stack-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="field">
+        <label for="login_username">ユーザーID</label>
+        <input id="login_username" type="text" name="username" required
+               autocomplete="username" autocapitalize="none">
     </div>
-</body>
-</html>
+    <div class="field">
+        <label for="login_password">パスワード</label>
+        <input id="login_password" type="password" name="password" required
+               autocomplete="current-password">
+    </div>
+    <button type="submit" class="btn btn-primary btn-block">ログイン</button>
+</form>
+
+<div class="sub-links">
+    <a href="{{ url_for('help_page') }}">使い方を見る</a>
+</div>
+{% endblock %}

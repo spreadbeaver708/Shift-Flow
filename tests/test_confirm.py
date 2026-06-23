@@ -12,19 +12,19 @@ def _add_worker(admin_client, username="taro", name="太郎"):
         "/manage_users",
         data={
             "action": "add", "mode": "create", "username": username,
-            "password": "taropass1", "name": name, "role": "worker", "color": "#e8f5e9",
+            "password": "Taro-Initial-Passphrase-2026", "name": name, "role": "worker", "color": "#e8f5e9",
         },
     )
 
 
 def _become_worker(admin_client, username="taro"):
-    admin_client.get("/logout")
-    admin_client.post("/login", data={"username": username, "password": "taropass1"})
+    admin_client.post("/logout")
+    admin_client.post("/login", data={"username": username, "password": "Taro-Initial-Passphrase-2026"})
     admin_client.post(
         "/change_password",
-        data={"password_current": "taropass1", "password_new": "taropass2"},
+        data={"password_current": "Taro-Initial-Passphrase-2026", "password_new": "Taro-Changed-Passphrase-2026"},
     )
-    admin_client.post("/login", data={"username": username, "password": "taropass2"})
+    admin_client.post("/login", data={"username": username, "password": "Taro-Changed-Passphrase-2026"})
 
 
 def test_admin_saves_confirmed_shift(admin_client, app_module):
@@ -67,7 +67,7 @@ def test_confirm_editor_shows_request_hint(admin_client):
     _add_worker(admin_client)
     resp = admin_client.get("/confirm/taro?year=2026&month=6")
     assert resp.status_code == 200
-    assert "希望:" in resp.get_data(as_text=True)
+    assert "本人の希望：" in resp.get_data(as_text=True)
 
 
 def test_confirm_user_unknown_redirects(admin_client):

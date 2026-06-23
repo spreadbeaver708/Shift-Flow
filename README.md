@@ -1,143 +1,114 @@
 # Shift-Flow
 
-カウンセリングルームのシフト希望を、職員がスマホから提出し、管理者が確認・調整する Flask 製アプリ。
+職員がスマートフォンからシフト希望を提出し、管理者が確認・確定する小規模チーム向けアプリです。
 
-- **公開先**: Render（Starter プラン） / **データベース**: SQLite（永続ディスク）
-- **いまの状態**: 4 名試用を終え、**約10名での実運用へ移行（V29 反映）**
-- セキュリティ対策の詳細は [CODE_REVIEW.md](CODE_REVIEW.md)
+- 公開: Render Starter
+- DB: SQLite + 永続ディスク
+- 想定: 約10名
+- 詳細な検証結果: [CODE_REVIEW.md](CODE_REVIEW.md)
+- 今後の改善: [IMPROVEMENTS.md](IMPROVEMENTS.md)
 
----
+## 使い方
 
-## これは何をするアプリ？
+### 職員
 
-- **職員**: 自分のシフト希望（出れる日 〇 / 出れない日 ×、ひとこと備考）をスマホで提出
-- **管理者**: 全員の希望をカレンダーで確認して調整
-- 入力できる曜日は **日・月・木**（開室日）
+1. IDと一時パスワードでログインする
+2. 15文字以上のパスフレーズへ変更する
+3. 「自分のシフト希望を入力」を開く
+4. 日・月・木を「〇 出勤可」または「× 休み」にする
+5. 必要な日だけ備考を追加して保存する
+6. 「確定シフトを見る」で決定内容を確認する
 
-操作方法はアプリ内の **「使い方」ページ（`/help`）** にまとめてあります。職員にはまずそこを案内してください。
+備考へ相談内容、健康情報、個人情報を書かないでください。
 
----
+### 管理者
 
-## 公開のしくみ（管理者向け）
+1. 「提出状況を見る」で未提出者を確認する
+2. 「希望シフトを見る」で希望と備考を確認する
+3. 「確定シフトを作る」で出勤日を決める
+4. 月1回、操作ログとバックアップを確認する
 
-GitHub にコードを push すると、**Render が自動で再公開**します（HTTPS つき）。
+職員の追加・修正・停止は「ユーザー管理」で行います。退職・休職時は削除せず停止します。
 
-- 設定はすべて **`render.yaml`** に書いてあり、Render が自動で読み込みます。
-- 手で入力する秘密の値は **`ADMIN_INIT_PASSWORD`（管理者の初期パスワード）だけ**。**admin 作成後は本番 env から削除推奨**（以後は使われません）。
-- データは Render の **永続ディスク `/var/data/shift.db`** に保存され、再公開しても消えません。
+## 安全性
 
----
+- パスワードはハッシュ化して保存
+- 新規パスワードは15〜128文字、頻出値とID一致を拒否
+- 初回ログインと管理者再設定後は本人の変更を強制
+- 無操作30分、ログイン後24時間で再認証
+- 管理操作は権限確認と監査ログを実施
+- CSRF、CSP、入力サイズ制限、セキュリティCookieを適用
+- ログアウトはCSRF保護されたPOST
+- 氏名を含まない `/worker` を正規URLとして使用
 
-## 運用の確認（毎週／毎月）
+## バックアップ
 
-1. **動作確認（毎週）** … 自分でログインし、シフト入力 → 保存まで触る
-2. **バックアップ確認（毎月）** … アプリが**起動のたびに自動で** `/var/data/backups/` へバックアップ（最新14世代）。月1回、最新ファイルを Render の「Shell」から手元へダウンロードし健全性を確認:
-   ```bash
-   ls -lt /var/data/backups/ | head                     # 最新の自動バックアップを確認
-   sqlite3 /var/data/backups/<最新ファイル>.db "PRAGMA integrity_check;"   # ok を確認
-   ```
-   ※ ディスクのスナップショット復元は使わない（破損復元の恐れ）。`/tmp` は一時用途のみ。
-3. **操作ログ確認（毎月）** … メニュー「操作ログ」で不審なログイン失敗・権限エラー(authz_fail)が無いか確認
-4. **気づきを記録** … 使いにくい点・要望をメモ
+アプリは次のバックアップをSQLite Backup APIで作成し、毎回健全性を確認します。
+作成中は一時ファイルを使い、完了後に置き換えるため、途中状態のファイルを正式バックアップとして残しません。
 
-> **相談室のため**: 備考欄に相談内容や個人情報を書かないよう、職員に伝えてください。
+- スキーマ変更前: `pre-migration-*.db`
+- 日次: `daily-YYYYMMDD.db` を14個保持
+- 月次: `monthly-YYYYMM.db` を12個保持
+- 手動: `manual-*.db`
 
----
-
-## 職員の追加・停止（管理者向け）
-
-メニューの **「ユーザー管理」** から行います。
-
-- **追加**: ID・一時パスワード・名前・色・権限を入力 → 本人が初回ログインでパスワードを変更
-- **停止 / 復活**: 退職・休職は「停止」（ログイン不可・履歴は残る）。戻ったら「復活」
-- **削除はしない**: 停止で十分。どうしても必要なときだけ CLI で（下記「開発者向けメモ」）
-
-安全装置として、自分自身や最後の管理者は降格・停止できません。ID の書き換えや表示名の重複もできません。
-
----
-
-## これからの進め方
-
-| フェーズ | 内容 | 状態 |
-|---|---|---|
-| 準備・公開 | Render で公開・動作確認 | ✅ 完了 |
-| 試用 | 4 名で運用・毎週確認 | ✅ 完了 |
-| 次フェーズ(V28) | 確定シフト・提出状況・操作ログ・セキュリティ強化 | ✅ 反映済み |
-| **実運用移行(V29・いま)** | **認可統一・実IP取得・本文上限・自動バックアップ・依存監査** | **反映済み** |
-| 本運用(10名) | 継続して改善 | 順次 |
-
-### 次フェーズで追加した機能
-
-- **「シフト希望」と「確定シフト」の分離** — 管理者が職員ごとに確定シフト（出勤日）を作成し、職員はチーム全体を読み取り専用で確認（メニュー「確定シフトを見る」）。確定の編集画面では本人の「希望」を下敷きに表示します。
-- **提出状況の一覧** — 誰が未提出かを管理者が一目で把握（メニュー「提出状況の一覧」）。
-- **操作ログ** — いつ誰が何をしたかの記録（メニュー「操作ログ」）。**パスワードや備考の本文は記録しません**。
-- **セキュリティ強化** — 無操作 30 分で自動ログアウト、CSP の script を nonce 化、認証ページのキャッシュ抑止、`Flask 3.1.3` へ更新。
-
-### 実運用に向けた強化（V29）
-
-- 管理者ページの権限チェックを統一し、権限のない操作は記録（操作ログの `authz_fail`）。
-- 前段の Cloudflare 経由でも**本当の利用者IP**でレート制限・記録（誤って全員を締め出さない）。
-- 送信データのサイズ上限を設定（極端に大きい送信を拒否）。
-- **起動のたびに自動バックアップ**＋リリース前に依存ライブラリの脆弱性チェック（`pip-audit`）。
-
-### 保留（今後の候補）
-- 管理画面からの**専用**パスワード再発行（今は「ユーザー管理」での再設定＋CLI で対応）。
-- CSP の `style` 厳格化（inline スタイルの CSS 化が必要なため別途）。
-
----
-
-## 困ったとき
-
-| 症状 | 対処 |
-|---|---|
-| ログインできない | ID・パスワードを管理者に確認（停止中かも） |
-| 「ID またはパスワードが正しくありません」が続く | 連続失敗のロック。1 分待つ |
-| ボタンが押せない／画面が戻る | セッション切れ。ログインし直す |
-| しばらく放置すると再ログインになる | 安全のため無操作 30 分で自動ログアウトします（`SESSION_IDLE_MINUTES` で調整可） |
-| データが消えた・admin に戻った | `SHIFT_DB_PATH=/var/data/shift.db` とディスクのマウント先 `/var/data` が一致しているか確認 |
-| パスワード変更画面から進めない | 初回の強制変更中。新パスワード（**8 文字以上**）を設定すれば解除 |
-
----
-
-## 開発者向けメモ
+保存先は `/var/data/backups/` です。同じディスクの故障には備えられないため、月1回、最新の月次バックアップを手元へ保存してください。
 
 ```bash
-# ローカルで起動
-python3 -m pip install -r requirements.txt
-python3 app.py            # → http://localhost:5000
-
-# テスト（94 件）
-python3 -m pip install -r requirements-dev.txt
-python3 -m pytest
-
-# 依存の脆弱性チェック（リリース前）
-pip-audit -r requirements.txt
+ls -lt /var/data/backups/
+sqlite3 /var/data/backups/<対象ファイル>.db "PRAGMA integrity_check;"
 ```
 
-**主な環境変数**（Render では `render.yaml` が自動設定。手入力は `ADMIN_INIT_PASSWORD` のみ）:
+復元時はサービスを停止し、現在のDBとWALファイルを退避してから健全なバックアップを配置します。古い `shift.db-wal` と `shift.db-shm` は新DBへ適用しないでください。
+
+## 毎月の確認
+
+- [ ] `/logs` に不審なログイン失敗・権限エラーがない
+- [ ] 管理メニューにバックアップ失敗警告がない
+- [ ] 最新バックアップが新しく、`integrity_check` が `ok`
+- [ ] 月次バックアップを手元へ保存した
+- [ ] 本番の「今月」が日本時間と一致する
+- [ ] `pip-audit -r requirements.txt` がクリーン
+
+## 開発
+
+```bash
+python3 -m pip install -r requirements-dev.txt
+python3 app.py
+python3 -m pytest
+python3 -m pip_audit -r requirements.txt
+```
+
+監視URL:
+
+- `/healthz`: プロセスの生存確認
+- `/readyz`: DBと必要テーブルを含む準備完了確認
+
+主な環境変数:
 
 | 変数 | 役割 |
 |---|---|
-| `APP_ENV` | 本番は `production` |
-| `SECRET_KEY` | セッション署名鍵（Render が自動生成） |
-| `SHIFT_DB_PATH` | DB の場所（Render は `/var/data/shift.db`） |
-| `ADMIN_INIT_PASSWORD` | 管理者の初期パスワード（初回のみ使用。admin 作成後は削除推奨） |
-| `TRUSTED_PROXY_HOPS` | Render は `1` |
-| `SESSION_IDLE_MINUTES` | 無操作での自動ログアウト時間（既定 `30`） |
-| `TRUST_CF_CONNECTING_IP` | Cloudflare 経由で実クライアントIPを使う。Render は `1` |
-| `LOGIN_RATE_LIMIT` | ログイン試行の上限（既定 `20 per minute`） |
-| `BACKUP_KEEP` | 起動時自動バックアップの保持世代数（既定 `14`） |
+| `APP_ENV` | `development` / `testing` / `production` |
+| `SECRET_KEY` | 本番必須。Renderが生成 |
+| `SHIFT_DB_PATH` | 本番必須。`/var/data/shift.db` |
+| `ADMIN_INIT_PASSWORD` | 初回だけ必要。15文字以上。admin作成後は削除 |
+| `TRUSTED_PROXY_HOPS` | Renderは `1` |
+| `TRUST_CF_CONNECTING_IP` | Renderは `1` |
+| `SESSION_IDLE_MINUTES` | 無操作期限。既定30分 |
+| `SESSION_ABSOLUTE_HOURS` | 総ログイン期限。既定24時間 |
+| `LOGIN_RATE_LIMIT` | ログイン試行上限 |
+| `RATELIMIT_STORAGE_URI` | レート制限の保存先。単一workerは `memory://` |
+| `BACKUP_KEEP` | 日次バックアップ保持数。既定14 |
+| `MONTHLY_BACKUP_KEEP` | 月次バックアップ保持数。既定12 |
+| `AUDIT_RETENTION` | 監査ログ保持件数。既定10000 |
 
-**職員の物理削除（必要時のみ・Render の「Shell」で実行）**:
+不正な設定値は安全な値へ黙って変更せず、修正方法を示して起動を停止します。
 
-```bash
-# 先に永続バックアップ＋健全性確認（/tmp は揮発するため /var/data/backups に置く）
-sqlite3 /var/data/shift.db ".backup '/var/data/backups/pre-delete-$(date +%Y%m%d).db'"
-sqlite3 /var/data/backups/pre-delete-$(date +%Y%m%d).db "PRAGMA integrity_check;"   # ok を確認
-sqlite3 /var/data/shift.db \
-  "PRAGMA foreign_keys=ON; \
-   DELETE FROM shifts WHERE username='対象ID'; \
-   DELETE FROM confirmed_shifts WHERE username='対象ID'; \
-   DELETE FROM users WHERE username='対象ID';"
-# 操作ログ(audit_log)は記録保全のため意図的に削除しません
-```
+## 構成
+
+- `app.py`: Flaskルートと画面処理
+- `settings.py`: 環境変数の検証
+- `storage.py`: DB初期化、移行、バックアップ、準備確認
+- `security_utils.py`: パスフレーズ検証
+- `time_utils.py`: UTC保存と日本時間表示
+- `templates/base.html`: 全画面の共通骨格
+- `static/style.css`: デザインとレスポンシブ表示

@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <title>{% block title %}Shift-Flow{% endblock %}</title>
+</head>
+<body class="{% block body_class %}{% endblock %}">
+    <main class="container {% block container_class %}{% endblock %}">
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                <div class="notice" role="status" aria-live="polite">
+                    {{ messages[0] }}
+                </div>
+            {% endif %}
+        {% endwith %}
+        {% block content %}{% endblock %}
+    </main>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

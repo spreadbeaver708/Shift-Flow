@@ -10,33 +10,33 @@ test 用の例外送出ルートを追加してハンドラの描画を検証す
 def test_403_returns_custom_template(client):
     """N: 職員ログインで /admin → 403。V14: カスタム HTML が返る。"""
     # 職員を作成 → 強制パスワード変更 → 再ログイン
-    client.post("/login", data={"username": "admin", "password": "adminpass1"})
+    client.post("/login", data={"username": "admin", "password": "Admin-Initial-Passphrase-2026"})
     client.post(
         "/change_password",
-        data={"password_current": "adminpass1", "password_new": "adminpass2"},
+        data={"password_current": "Admin-Initial-Passphrase-2026", "password_new": "Admin-Changed-Passphrase-2026"},
     )
-    client.post("/login", data={"username": "admin", "password": "adminpass2"})
+    client.post("/login", data={"username": "admin", "password": "Admin-Changed-Passphrase-2026"})
     client.post(
         "/manage_users",
         data={
             "action": "add", "mode": "create",
-            "username": "taro", "password": "taropass1",
+            "username": "taro", "password": "Taro-Initial-Passphrase-2026",
             "name": "太郎", "role": "worker", "color": "#e8f5e9",
         },
     )
-    client.get("/logout")
-    client.post("/login", data={"username": "taro", "password": "taropass1"})
+    client.post("/logout")
+    client.post("/login", data={"username": "taro", "password": "Taro-Initial-Passphrase-2026"})
     client.post(
         "/change_password",
-        data={"password_current": "taropass1", "password_new": "taropass2"},
+        data={"password_current": "Taro-Initial-Passphrase-2026", "password_new": "Taro-Changed-Passphrase-2026"},
     )
-    client.post("/login", data={"username": "taro", "password": "taropass2"})
+    client.post("/login", data={"username": "taro", "password": "Taro-Changed-Passphrase-2026"})
 
     resp = client.get("/admin")
     assert resp.status_code == 403
     body = resp.get_data(as_text=True)
     assert "403" in body
-    assert "この画面にはアクセスできません" in body
+    assert "この画面は開けません" in body
     # 認証済みなのでメニューへの導線
     assert "メニューに戻る" in body
 
@@ -54,12 +54,12 @@ def test_404_returns_custom_template_anonymous(client):
 
 def test_404_returns_custom_template_logged_in(client):
     """V14: ログイン済みで 404 → メニューへの導線が出る。"""
-    client.post("/login", data={"username": "admin", "password": "adminpass1"})
+    client.post("/login", data={"username": "admin", "password": "Admin-Initial-Passphrase-2026"})
     client.post(
         "/change_password",
-        data={"password_current": "adminpass1", "password_new": "adminpass2"},
+        data={"password_current": "Admin-Initial-Passphrase-2026", "password_new": "Admin-Changed-Passphrase-2026"},
     )
-    client.post("/login", data={"username": "admin", "password": "adminpass2"})
+    client.post("/login", data={"username": "admin", "password": "Admin-Changed-Passphrase-2026"})
 
     resp = client.get("/this-path-does-not-exist")
     assert resp.status_code == 404
@@ -82,7 +82,7 @@ def test_500_returns_custom_template(client, app_module):
         assert resp.status_code == 500
         body = resp.get_data(as_text=True)
         assert "500" in body
-        assert "サーバー側でエラーが発生しました" in body
+        assert "一時的なエラーが発生しました" in body
         # スタックトレースが漏れていないこと
         assert "synthetic failure" not in body
         assert "Traceback" not in body

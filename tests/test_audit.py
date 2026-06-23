@@ -25,7 +25,7 @@ def _all_text(app_module):
     return " ".join(str(r) for r in rows)
 
 
-def _add_worker(admin_client, username="taro", name="太郎", pw="taropass1"):
+def _add_worker(admin_client, username="taro", name="太郎", pw="Taro-Initial-Passphrase-2026"):
     admin_client.post(
         "/manage_users",
         data={
@@ -36,8 +36,8 @@ def _add_worker(admin_client, username="taro", name="太郎", pw="taropass1"):
 
 
 def test_login_success_and_logout_logged(client, login, app_module):
-    login("admin", "adminpass1")
-    client.get("/logout")
+    login("admin", "Admin-Initial-Passphrase-2026")
+    client.post("/logout")
     acts = _actions(app_module)
     assert "login_success" in acts
     assert "logout" in acts
@@ -64,7 +64,7 @@ def test_user_and_password_events_logged(admin_client, app_module):
         data={
             "action": "add", "mode": "edit", "original_username": "taro",
             "name": "太郎2", "role": "worker", "color": "#fff8e1",
-            "password": "newtaro9",
+            "password": "Taro-Reset-Passphrase-2026",
         },
     )
     admin_client.post(
@@ -90,7 +90,7 @@ def test_request_submit_logged_without_remark_body(admin_client, app_module):
 def test_no_passwords_or_hashes_in_audit_log(admin_client, app_module):
     _add_worker(admin_client)
     blob = _all_text(app_module)
-    for secret in ("adminpass1", "adminpass2", "taropass1", "scrypt"):
+    for secret in ("Admin-Initial-Passphrase-2026", "Admin-Changed-Passphrase-2026", "Taro-Initial-Passphrase-2026", "scrypt"):
         assert secret not in blob
 
 
@@ -108,13 +108,13 @@ def test_logs_route_ok_for_admin(admin_client):
 
 def test_logs_route_forbidden_for_worker(admin_client):
     _add_worker(admin_client)
-    admin_client.get("/logout")
-    admin_client.post("/login", data={"username": "taro", "password": "taropass1"})
+    admin_client.post("/logout")
+    admin_client.post("/login", data={"username": "taro", "password": "Taro-Initial-Passphrase-2026"})
     admin_client.post(
         "/change_password",
-        data={"password_current": "taropass1", "password_new": "taropass2"},
+        data={"password_current": "Taro-Initial-Passphrase-2026", "password_new": "Taro-Changed-Passphrase-2026"},
     )
-    admin_client.post("/login", data={"username": "taro", "password": "taropass2"})
+    admin_client.post("/login", data={"username": "taro", "password": "Taro-Changed-Passphrase-2026"})
     assert admin_client.get("/logs").status_code == 403
 
 

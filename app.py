@@ -1,13 +1,10 @@
-import os
 import re
 import json
-import glob
 import secrets
-import sqlite3
 import calendar
 import ipaddress
 from contextlib import closing
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 from flask import (
@@ -21,100 +18,58 @@ from flask_limiter.util import get_remote_address
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import generate_password_hash, check_password_hash
 
-# =====================
-# アプリ初期設定
-# =====================
-app = Flask(__name__)
-
-APP_ENV = os.environ.get("APP_ENV", "development")
-IS_PROD = APP_ENV == "production"
-
-# Codex(後追加)#4: リバプロ配下では request.remote_addr がプロキシ IP（127.0.0.1 等）になり、
-# レート制限が全ユーザーで共有されてしまう。TRUSTED_PROXY_HOPS で信頼するプロキシ段数を
-# 明示した時のみ ProxyFix を適用し、X-Forwarded-For 等から実 IP を取り出す。
-# 直接公開（プロキシ無し）の場合は 0 のまま（X-Forwarded-* を信頼するとIP偽装可能なため）。
-#
-# Codex(再指摘)#4: 不正値（abc / 空文字 / 負数）は ValueError のまま放置せず、
-# 明示メッセージ付き RuntimeError で fail-fast する。
-# 「安全に 0 倒し」だとリバプロ配下で気づかずレート制限共有のまま動く事故源になるため、
-# 設定ミスを早期に検出する fail-fast を選択。
-_hops_raw = os.environ.get("TRUSTED_PROXY_HOPS", "0").strip()
-try:
-    TRUSTED_PROXY_HOPS = int(_hops_raw)
-except ValueError:
-    raise RuntimeError(
-        f"TRUSTED_PROXY_HOPS は非負整数で指定してください（現在: {_hops_raw!r}）。"
-        " 既定 0、Caddy/Nginx 経由なら 1。"
-    )
-if TRUSTED_PROXY_HOPS < 0:
-    raise RuntimeError(
-        f"TRUSTED_PROXY_HOPS は 0 以上で指定してください（現在: {TRUSTED_PROXY_HOPS}）"
-    )
-
-# B: SECRET_KEY は本番では必須（fail-fast）。開発ではランダムフォールバック。
-SECRET_KEY = os.environ.get("SECRET_KEY")
-if not SECRET_KEY:
-    if IS_PROD:
-        raise RuntimeError("SECRET_KEY が未設定です（本番では必須）")
-    SECRET_KEY = secrets.token_hex(32)
-    print("[dev] SECRET_KEY 未設定のためランダム鍵を生成（開発限定）")
-app.secret_key = SECRET_KEY
-
-# V28: アイドルタイムアウト（無操作で自動ログアウト）。個人端末の置き忘れ対策。
-# SESSION_REFRESH_EACH_REQUEST 既定 True によりリクエストごとに有効期限が延びる
-# （スライディング）。不正値は fail-fast（TRUSTED_PROXY_HOPS と同じ方針）。
-_idle_raw = os.environ.get("SESSION_IDLE_MINUTES", "30").strip()
-try:
-    SESSION_IDLE_MINUTES = int(_idle_raw)
-except ValueError:
-    raise RuntimeError(
-        f"SESSION_IDLE_MINUTES は正の整数で指定してください（現在: {_idle_raw!r}）"
-    )
-if SESSION_IDLE_MINUTES < 1:
-    raise RuntimeError(
-        f"SESSION_IDLE_MINUTES は 1 以上で指定してください（現在: {SESSION_IDLE_MINUTES}）"
-    )
-
-# H: セッションCookie属性。SECURE は HTTPS本番限定。
-# V28: SESSION_COOKIE_NAME を既定の "session" から変更（フレームワーク指紋の低減）。
-#      PERMANENT_SESSION_LIFETIME はアイドルタイムアウトの上限。
-app.config.update(
-    SESSION_COOKIE_SECURE=IS_PROD,
-    SESSION_COOKIE_HTTPONLY=True,
-    SESSION_COOKIE_SAMESITE="Lax",
-    # V29: 本番(HTTPS)は __Host- prefix で固定（Secure/Path=/・Domain無が条件）。
-    #      dev は HTTP のため通常名（__Host- は Secure 必須で HTTP 不可）。
-    SESSION_COOKIE_NAME=("__Host-sfid" if IS_PROD else "sfid"),
-    PERMANENT_SESSION_LIFETIME=timedelta(minutes=SESSION_IDLE_MINUTES),
-    # V29: 本文サイズ上限。Werkzeug の form 既定(500KB/1000parts)に加え、本文全体を
-    #      早期に総量で弾く深層防御（フォームは数十KB）。超過は 413。
-    MAX_CONTENT_LENGTH=256 * 1024,
+from security_utils import (
+    is_valid_password,
+    normalize_password,
+    password_error,
 )
+from settings import load_settings
+from storage import DatabaseManager
+from time_utils import format_jst, now_jst, now_utc
 
-# Codex(後追加)#4: ProxyFix を信頼段数分だけ適用（既定 0 では適用しない）
-if TRUSTED_PROXY_HOPS > 0:
-    app.wsgi_app = ProxyFix(
-        app.wsgi_app,
-        x_for=TRUSTED_PROXY_HOPS,
-        x_proto=TRUSTED_PROXY_HOPS,
-        x_host=TRUSTED_PROXY_HOPS,
+
+def create_app():
+    application = Flask(__name__)
+    settings = load_settings(application.instance_path)
+    application.extensions["shift_settings"] = settings
+    application.secret_key = settings.secret_key
+    application.config.update(
+        SESSION_COOKIE_SECURE=settings.is_prod,
+        SESSION_COOKIE_HTTPONLY=True,
+        SESSION_COOKIE_SAMESITE="Lax",
+        SESSION_COOKIE_NAME=("__Host-sfid" if settings.is_prod else "sfid"),
+        PERMANENT_SESSION_LIFETIME=timedelta(minutes=settings.session_idle_minutes),
+        MAX_CONTENT_LENGTH=256 * 1024,
     )
+    if settings.trusted_proxy_hops:
+        application.wsgi_app = ProxyFix(
+            application.wsgi_app,
+            x_for=settings.trusted_proxy_hops,
+            x_proto=settings.trusted_proxy_hops,
+            x_host=settings.trusted_proxy_hops,
+        )
+    return application
 
-# D: CSRF
+
+app = create_app()
+app.jinja_env.filters["jst"] = format_jst
+SETTINGS = app.extensions["shift_settings"]
+APP_ENV = SETTINGS.app_env
+IS_PROD = SETTINGS.is_prod
+SECRET_KEY = SETTINGS.secret_key
+TRUSTED_PROXY_HOPS = SETTINGS.trusted_proxy_hops
+SESSION_IDLE_MINUTES = SETTINGS.session_idle_minutes
+SESSION_ABSOLUTE_HOURS = SETTINGS.session_absolute_hours
+TRUST_CF_CONNECTING_IP = SETTINGS.trust_cf_connecting_ip
+LOGIN_RATE_LIMIT = SETTINGS.login_rate_limit
+DB_PATH = SETTINGS.db_path
+BACKUP_KEEP = SETTINGS.daily_backup_keep
+BACKUP_ON_STARTUP = SETTINGS.backup_enabled
+AUDIT_RETENTION = SETTINGS.audit_retention
+
 csrf = CSRFProtect(app)
 
-# V29: クライアントIP解決。前段が Cloudflare + Render LB のため get_remote_address() は
-# 既定でプロキシIPになりうる。Render は CF-Connecting-IP（元クライアントIPのみ）を転送するので、
-# 明示的に信頼する場合（env TRUST_CF_CONNECTING_IP=1）に限りそれを優先する。
-# 直アクセス不可（エッジ経由のみ）な構成でのみ安全＝TRUSTED_PROXY_HOPS と同じ明示信頼方針。
-TRUST_CF_CONNECTING_IP = os.environ.get("TRUST_CF_CONNECTING_IP", "0").strip().lower() in ("1", "true", "yes")
-
-
 def client_ip():
-    # V29: TRUST_CF_CONNECTING_IP=1 のときのみ CF-Connecting-IP を採用。ただし
-    # **妥当な IP アドレスとして検証できた場合に限る**（不正値は get_remote_address にフォールバック）。
-    # 偽装の根本防止はエッジ(Cloudflare/Render)がこのヘッダを上書きすること。検証は深層防御で、
-    # 不正値が監査ログ/レート制限キーに混入するのを防ぐ。
     if TRUST_CF_CONNECTING_IP:
         cf = request.headers.get("CF-Connecting-IP")
         if cf:
@@ -127,185 +82,37 @@ def client_ip():
     return get_remote_address()
 
 
-# I: ログイン試行レート制限（key は client_ip に統一）
-# Codex#4: storage_uri を明示。複数 worker で厳密共有したい場合は RATELIMIT_STORAGE_URI=redis://...。
-# 未指定（memory://）は worker ごとに別カウンタになる点に注意（README 参照）。
-# V29: ログイン上限は LOGIN_RATE_LIMIT で可変（既定 20/分）。change_password は 10/分維持。
-LOGIN_RATE_LIMIT = os.environ.get("LOGIN_RATE_LIMIT", "20 per minute")
 limiter = Limiter(
     client_ip,
     app=app,
     default_limits=[],
-    storage_uri=os.environ.get("RATELIMIT_STORAGE_URI", "memory://"),
+    storage_uri=SETTINGS.rate_limit_storage_uri,
 )
 
-# S: DBパスはCWDに依存させない。SHIFT_DB_PATH があればそちら、無ければ instance_path/shift.db
-# Codex#3: 本番では絶対パス必須（相対パスは gunicorn 起動位置によって別 DB を作る事故源）
-DB_PATH = os.environ.get("SHIFT_DB_PATH") or os.path.join(app.instance_path, "shift.db")
-if IS_PROD and not os.path.isabs(DB_PATH):
-    raise RuntimeError(
-        f"SHIFT_DB_PATH は本番では絶対パスで指定してください（現在: {DB_PATH!r}）"
-    )
-os.makedirs(app.instance_path, exist_ok=True)
-# instance_path 以外を指定された場合も格納ディレクトリは作成しておく
-_db_dir = os.path.dirname(DB_PATH)
-if _db_dir:
-    os.makedirs(_db_dir, exist_ok=True)
-
-# V29: 起動時自動バックアップの設定（実行は既定で本番のみ。テスト/開発では走らせない）。
-try:
-    BACKUP_KEEP = int(os.environ.get("BACKUP_KEEP", "14"))
-except ValueError:
-    BACKUP_KEEP = 14
-if BACKUP_KEEP < 1:
-    # V29: 0/負数で剪定が無効化されディスクを圧迫しないよう、最低 1 世代に clamp。
-    BACKUP_KEEP = 1
-BACKUP_ON_STARTUP = os.environ.get(
-    "BACKUP_ON_STARTUP", "1" if IS_PROD else "0"
-).strip().lower() in ("1", "true", "yes")
+db_manager = DatabaseManager(
+    DB_PATH,
+    is_prod=IS_PROD,
+    backup_enabled=BACKUP_ON_STARTUP,
+    daily_keep=BACKUP_KEEP,
+    monthly_keep=SETTINGS.monthly_backup_keep,
+)
 
 # カレンダーを日曜日始まりに固定
 calendar.setfirstweekday(calendar.SUNDAY)
 
 
 def get_db():
-    # R: SQLite 同時書き込み堅牢化（フェーズ2 本格対応）
-    #   - timeout=30:          ロック待ち（既定 5 秒 → 30 秒）。
-    #   - journal_mode=WAL:    読み書きの並行性を上げる。スマホ同時提出での「database is locked」予防。
-    #   - synchronous=NORMAL:  WAL での既定。性能と耐久性のバランス。
-    #   - foreign_keys=ON:     将来の FK 制約（フェーズ3 で user_id 化する際に効く）。
-    #   journal_mode は DB ファイル単位で永続化される PRAGMA だが、毎回適用しても害はない。
-    conn = sqlite3.connect(DB_PATH, timeout=30)
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA synchronous=NORMAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    return conn
+    db_manager.ensure_ready()
+    return db_manager.connect()
 
 
-# =====================
-# データベース初期化
-# =====================
 def init_db():
-    with closing(get_db()) as conn, conn:
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS shifts ("
-            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-            "year INTEGER, month INTEGER, day INTEGER, "
-            "name TEXT, status TEXT, remarks TEXT DEFAULT '')"
-        )
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS users ("
-            "username TEXT PRIMARY KEY, password TEXT, role TEXT, "
-            "name TEXT, is_active INTEGER DEFAULT 1, color TEXT DEFAULT '#e8f5e9')"
-        )
-
-        # V28: 監査ログ（操作ログ）。意図的に users への FK は張らない
-        #   - ユーザーを物理削除しても「誰が何をしたか」の記録は残すべき
-        #   - login_fail の未知 ID や 'anonymous' も記録するため
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS audit_log ("
-            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-            "ts TEXT, actor TEXT, actor_name TEXT, action TEXT, "
-            "target TEXT, detail TEXT, ip TEXT)"
-        )
-
-        # V23: must_change_password 列を冪等に追加（既存 DB / 新規 DB どちらでも安全）
-        cols = [r[1] for r in conn.execute("PRAGMA table_info(users)").fetchall()]
-        if "must_change_password" not in cols:
-            conn.execute(
-                "ALTER TABLE users ADD COLUMN must_change_password INTEGER DEFAULT 0"
-            )
-
-        # V28: シフトを表示名から username 基準へ非破壊移行（rename の取りこぼし解消）。
-        #   - username 列を冪等追加し、既存行は users.name から backfill。
-        #   - name 列は互換＆ロールバック用に残し、以後 INSERT 時に併記する。
-        scols = [r[1] for r in conn.execute("PRAGMA table_info(shifts)").fetchall()]
-        if "username" not in scols:
-            conn.execute("ALTER TABLE shifts ADD COLUMN username TEXT")
-        # backfill は「列追加直後」だけでなく **毎回** 実行する（冪等）。
-        # 部分移行・旧版へのロールバック後の再起動・CLI 手動投入などで生じた
-        # username IS NULL の行を取りこぼすと /admin・/submissions から希望が消えるため。
-        conn.execute(
-            "UPDATE shifts SET username="
-            "(SELECT u.username FROM users u WHERE u.name = shifts.name) "
-            "WHERE username IS NULL"
-        )
-
-        # V28: 確定シフト（管理者が作成、職員はチーム全体を読み取り専用で閲覧）。
-        #   username 基準。新規テーブルなので CREATE 時に FK を付与できる（既設 foreign_keys=ON）。
-        #   ON DELETE CASCADE: ユーザー物理削除時に確定行も自動削除（CLI 運用を阻害しない）。
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS confirmed_shifts ("
-            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-            "year INTEGER, month INTEGER, day INTEGER, "
-            "username TEXT, status TEXT, "
-            "UNIQUE(year, month, day, username), "
-            "FOREIGN KEY(username) REFERENCES users(username) ON DELETE CASCADE)"
-        )
-
-        # V29: 表示名のDB一意制約（アプリ検証の二重化）。既存重複があると索引作成に失敗し
-        # 起動不能になるため、重複0件のときだけ作成する（重複時は警告printしてスキップ）。
-        dup_names = conn.execute(
-            "SELECT COUNT(*) FROM (SELECT 1 FROM users GROUP BY name HAVING COUNT(*) > 1)"
-        ).fetchone()[0]
-        if dup_names == 0:
-            conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_name ON users(name)")
-        else:
-            print(f"[init] users.name に重複 {dup_names} 件のため UNIQUE 索引はスキップ（要手動解消）")
-
-        # C: 旧版の固定初期パスワードを排除。admin が存在しない場合のみ作成。
-        # Codex#2: gunicorn -w N で複数 worker が同時に起動した場合の競合を防ぐため
-        #   1) INSERT OR IGNORE で冪等にする（UNIQUE 違反は無視）
-        #   2) 実際に書き込みに成功した worker のみログ表示する（rowcount > 0）
-        exists = conn.execute("SELECT 1 FROM users WHERE username='admin'").fetchone()
-        if not exists:
-            init_pw = os.environ.get("ADMIN_INIT_PASSWORD")
-            is_random = False
-            if not init_pw:
-                init_pw = secrets.token_urlsafe(12)
-                is_random = True
-            cur = conn.execute(
-                "INSERT OR IGNORE INTO users "
-                "(username, password, role, name, is_active, color, must_change_password) "
-                "VALUES (?, ?, ?, ?, 1, ?, 1)",
-                ("admin", generate_password_hash(init_pw), "admin", "管理者", "#2196F3"),
-            )
-            if cur.rowcount > 0 and is_random:
-                print("[init] ADMIN_INIT_PASSWORD 未設定のためランダム生成しました。")
-                print(f"[init] admin 初期パスワード（一度だけ表示）: {init_pw}")
-                print("[init] 初回ログイン後、/change_password で必ず変更してください。")
-            elif cur.rowcount > 0:
-                print("[init] admin ユーザーを作成しました（ADMIN_INIT_PASSWORD を使用）")
+    db_manager.reconcile_schema()
 
 
-def backup_db():
-    """DB を backups/ に SQLite Backup API でコピーし、最新 BACKUP_KEEP 世代を残す。
-    起動を止めないため、呼び出し側で例外を握りつぶす想定。生成先パスを返す。"""
-    bdir = os.path.join(_db_dir or ".", "backups")
-    os.makedirs(bdir, exist_ok=True)
-    # マイクロ秒まで含め、同一秒内の連続実行でもファイル名が衝突しないようにする
-    ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
-    dest = os.path.join(bdir, f"shift-{ts}.db")
-    with closing(sqlite3.connect(DB_PATH)) as src, closing(sqlite3.connect(dest)) as dst:
-        src.backup(dst)  # オンライン整合バックアップ（稼働中でも安全）
-    # 古い世代を削除（ファイル名は時刻順＝辞書順）
-    if BACKUP_KEEP > 0:
-        for old in sorted(glob.glob(os.path.join(bdir, "shift-*.db")))[:-BACKUP_KEEP]:
-            try:
-                os.remove(old)
-            except OSError:
-                pass
-    return dest
-
-
-init_db()
-print(f"[init] DB_PATH={DB_PATH}")
-# V29: 起動時自動バックアップ（既定で本番のみ）。失敗しても起動は止めない。
-if BACKUP_ON_STARTUP:
-    try:
-        print(f"[init] startup backup: {backup_db()}")
-    except Exception as e:
-        print(f"[init] startup backup skipped (error: {e})")
+def backup_db(kind="manual"):
+    db_manager.ensure_ready()
+    return db_manager.backup(kind)
 
 
 # =====================
@@ -313,31 +120,18 @@ if BACKUP_ON_STARTUP:
 # =====================
 HEX_COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
 USERNAME_RE = re.compile(r"^[A-Za-z0-9_.@-]{1,32}$")
-# Codex(後追加)#3: 表示名は URL パス（/worker/<name>）に入るため URL 予約文字を禁止する。
-# 加えて HTML / 制御文字面で問題になりがちな文字も弾く。
+# 旧URL互換とログの可読性を保つため、予約文字と制御文字を拒否する。
 NAME_FORBIDDEN_RE = re.compile(r"[/\\?#&<>\r\n\t\x00]")
 REMARK_MAX_LEN = 500
 
 
 def get_month_links():
-    now = datetime.now()
-    next_date = datetime(now.year, now.month, 1) + timedelta(days=32)
+    now = now_jst()
+    next_date = now.replace(day=1) + timedelta(days=32)
     return {
         "now_y": now.year, "now_m": now.month,
         "next_y": next_date.year, "next_m": next_date.month,
     }
-
-
-# V27: パスワード方針（NIST SP 800-63B の考え方）。
-#   - 長さを重視し 8 文字以上。記号・空白・日本語も許可し、文字種の縛りはかけない
-#     （以前の .isalnum() 必須は、強い記号入りパスワードを弾く逆効果だった）。
-#   - 上限 128 文字（極端に長い入力でハッシュ計算資源を浪費させる事故を防ぐ）。
-PASSWORD_MIN_LEN = 8
-PASSWORD_MAX_LEN = 128
-
-
-def is_valid_password(p):
-    return p is not None and PASSWORD_MIN_LEN <= len(p) <= PASSWORD_MAX_LEN
 
 
 def safe_ym(default_y, default_m):
@@ -356,16 +150,31 @@ def safe_ym(default_y, default_m):
 # =====================
 @app.before_request
 def load_current_user():
-    # V28: CSP nonce を毎リクエスト生成。static・エラーページを含む全レスポンスで
-    # ヘッダとテンプレートの nonce を一致させるため、最初に必ず設定する。
     g.csp_nonce = secrets.token_urlsafe(16)
     g.user = None
-    # 静的ファイルは認証不要。毎リクエストの DB 照会を避ける（負荷・攻撃面の低減）。
-    if request.endpoint == "static":
+    if request.endpoint in {"static", "healthz", "readyz"}:
         return
+    db_manager.ensure_ready()
     u = session.get("username")
     if not u:
         return
+    authenticated_at = session.get("authenticated_at")
+    if authenticated_at:
+        try:
+            login_time = datetime.fromisoformat(authenticated_at)
+        except (TypeError, ValueError):
+            login_time = None
+        if login_time is None or login_time.tzinfo is None:
+            session.clear()
+            flash("セッションを確認できませんでした。もう一度ログインしてください。")
+            return
+        if now_utc() - login_time >= timedelta(hours=SESSION_ABSOLUTE_HOURS):
+            session.clear()
+            flash("安全のためログアウトしました。もう一度ログインしてください。")
+            return
+    else:
+        # 旧セッションは更新後の最初のアクセス時点から総有効期限を開始する。
+        session["authenticated_at"] = now_utc().isoformat(timespec="seconds")
     with closing(get_db()) as conn:
         row = conn.execute(
             "SELECT username, role, name, is_active, must_change_password "
@@ -382,7 +191,7 @@ def load_current_user():
     )
 
 
-# V23: 初回ログインや管理者リセット後は、パスワード変更まで他画面に進めない
+# 初回ログインや管理者リセット後は、パスワード変更まで他画面に進めない
 ALLOWED_WHEN_MUST_CHANGE = {"change_password", "logout", "static", "help_page"}
 
 
@@ -399,38 +208,32 @@ def force_password_change():
 @app.context_processor
 def inject_current_user():
     # テンプレも session['role'] ではなく current_user.role を使うように統一
-    # V28: 全テンプレの <script nonce="..."> 用に csp_nonce も渡す
+    # 全テンプレの <script nonce="..."> 用に csp_nonce も渡す
     return {
         "current_user": getattr(g, "user", None),
         "csp_nonce": getattr(g, "csp_nonce", ""),
     }
 
 
-# V2: CSRF トークン期限切れ時の親切な UX 救済
+# CSRF トークン期限切れ時の親切な UX 救済
 # 既定の 400 ページに着地すると「シフトを出したつもりが消えた」事故になるため、
 # セッションを破棄しログイン画面に flash 付きで送る。
 # 重要: flash() は内部で session を使うため session.clear() → flash() → redirect() の順。
 @app.errorhandler(CSRFError)
 def handle_csrf_error(e):
-    # V28: セッション破棄の前に記録（actor は g.user か anonymous）
-    log_event("csrf_error", target=(request.path or "")[:128])
+    # セッション破棄の前に記録（actor は g.user か anonymous）
+    safe_log_event("csrf_error", target=(request.path or "")[:128])
     session.clear()
     flash("セッションが切れました。もう一度ログインしてください。")
     return redirect(url_for("login"))
 
 
-# V9/V27/V28: セキュリティヘッダ。
-#   - CSP: 外部リソース読み込み・フレーム埋め込み・フォーム送信先の外部流出を遮断。
-#     script は nonce 方式（'unsafe-inline' を撤去）＝ XSS 時の inline スクリプト実行を遮断。
-#     style は inline 属性（style="..."）を多用するため当面 'unsafe-inline' を許可
-#     （nonce は inline style 属性に効かず、撤去は全テンプレの CSS 化が必要なため別タスク）。
-#     base-uri は 'none'（<base> 注入の遮断）。外部 CDN は未使用。
-#   - HSTS: 本番（HTTPS）でのみ付与。HTTP への降格を防ぐ。
+# 外部読み込み、inline script/style、フレーム埋め込み、外部フォーム送信を遮断する。
 def _build_csp(nonce):
     return (
         "default-src 'self'; "
         f"script-src 'self' 'nonce-{nonce}'; "
-        "style-src 'self' 'unsafe-inline'; "
+        "style-src 'self'; "
         "img-src 'self' data:; "
         "object-src 'none'; "
         "base-uri 'none'; "
@@ -451,34 +254,58 @@ def add_security_headers(resp):
         resp.headers.setdefault(
             "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
         )
-    # V28/V29: 静的以外の全動的応答を端末・中間キャッシュに残さない（共有/個人端末の戻るボタン
+    # 静的以外の全動的応答を端末・中間キャッシュに残さない（共有/個人端末の戻るボタン
     # 対策、login の CSRF トークン鮮度、CVE-2026-27205 = session アクセス時の Vary: Cookie 欠落緩和）。
     if request.endpoint != "static":
         resp.headers["Cache-Control"] = "no-store"
+    if request.method == "POST" and resp.status_code < 400 and BACKUP_ON_STARTUP:
+        try:
+            db_manager.scheduled_backup()
+        except Exception as exc:
+            print(f"[backup] 自動バックアップ失敗: {exc}")
     return resp
 
 
-# V14: カスタムエラーページ。スタックトレースの露出を防ぎ、職員が迷子にならないように
+# カスタムエラーページ。スタックトレースの露出を防ぎ、職員が迷子にならないように
 # メニュー / ログインへの導線を提示する。
 @app.errorhandler(403)
 def handle_403(e):
-    return render_template("errors/403.html"), 403
+    return render_template(
+        "error.html",
+        code=403,
+        title="この画面は開けません",
+        message="管理者専用の画面です。メニューから操作をやり直してください。",
+    ), 403
 
 
 @app.errorhandler(404)
 def handle_404(e):
-    return render_template("errors/404.html"), 404
+    return render_template(
+        "error.html",
+        code=404,
+        title="ページが見つかりません",
+        message="URLが変更された可能性があります。メニューから操作をやり直してください。",
+    ), 404
 
 
 @app.errorhandler(500)
 def handle_500(e):
-    return render_template("errors/500.html"), 500
+    return render_template(
+        "error.html",
+        code=500,
+        title="一時的なエラーが発生しました",
+        message="少し待ってからやり直してください。繰り返す場合は管理者へ連絡してください。",
+    ), 500
 
 
 @app.errorhandler(413)
 def handle_413(e):
-    # V29: 本文サイズ超過。素のエラーを出さず親切ページへ。
-    return render_template("errors/413.html"), 413
+    return render_template(
+        "error.html",
+        code=413,
+        title="入力内容が大きすぎます",
+        message="備考を短くして、もう一度保存してください。",
+    ), 413
 
 
 def require_login():
@@ -489,16 +316,14 @@ def require_admin():
     return g.user is not None and g.user.role == "admin"
 
 
-# V27: ログイン失敗時、ユーザーの存在有無で応答時間が変わると ID 列挙の手がかりになる。
+# ログイン失敗時、ユーザーの存在有無で応答時間が変わると ID 列挙の手がかりになる。
 # 該当ユーザーが無い場合もこのダミーハッシュで検証を回し、処理時間を平準化する。
 _DUMMY_PW_HASH = generate_password_hash("not-a-real-password")
 
 
 # =====================
-# V28: 監査ログ（操作ログ）
+# 監査ログ（操作ログ）
 # =====================
-# 肥大化防止のため最新 N 件だけ保持する。
-AUDIT_RETENTION = int(os.environ.get("AUDIT_RETENTION", "10000"))
 _AUDIT_DETAIL_MAX = 500
 
 
@@ -523,7 +348,7 @@ def log_action(conn, action, target="", detail="", actor=None, actor_name=None):
         "INSERT INTO audit_log (ts, actor, actor_name, action, target, detail, ip) "
         "VALUES (?,?,?,?,?,?,?)",
         (
-            datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            now_utc().isoformat(timespec="seconds"),
             (actor or "")[:64],
             (actor_name or "")[:64],
             (action or "")[:32],
@@ -545,7 +370,15 @@ def log_event(action, target="", detail="", actor=None, actor_name=None):
         log_action(conn, action, target, detail, actor, actor_name)
 
 
-# V29: 管理者専用ルートの共通ガード（認可を一貫させる）。
+def safe_log_event(action, target="", detail="", actor=None, actor_name=None):
+    """監査DBの障害で認証・認可の本処理を失敗させない。"""
+    try:
+        log_event(action, target, detail, actor, actor_name)
+    except Exception:
+        app.logger.exception("監査ログの保存に失敗しました: %s", action)
+
+
+# 管理者専用ルートの共通ガード（認可を一貫させる）。
 #   未ログイン      → login へリダイレクト（呼び出し側で return する）
 #   ログイン済み非管理者 → authz_fail を監査記録して 403（abort で送出）
 #   管理者          → None（呼び出し側は処理続行）
@@ -553,7 +386,7 @@ def deny_if_not_admin():
     if not require_login():
         return redirect(url_for("login"))
     if not require_admin():
-        log_event("authz_fail", target=(request.path or "")[:128])
+        safe_log_event("authz_fail", target=(request.path or "")[:128])
         abort(403)
     return None
 
@@ -573,22 +406,34 @@ def login():
                 "FROM users WHERE username=? AND is_active=1",
                 (u,),
             ).fetchone()
-        if row and check_password_hash(row[1], p):
+        normalized_password = normalize_password(p)
+        valid_password = bool(
+            row
+            and (
+                check_password_hash(row[1], p)
+                or (
+                    normalized_password != p
+                    and check_password_hash(row[1], normalized_password)
+                )
+            )
+        )
+        if valid_password:
             # P: 旧セッションを必ず破棄してから新規セッションを設定
-            # V11: session には username のみ保持（role/name は load_current_user が DB から再取得）
+            # session には username のみ保持（role/name は load_current_user が DB から再取得）
             session.clear()
-            # V28: PERMANENT_SESSION_LIFETIME（無操作タイムアウト）を効かせる。
+            # PERMANENT_SESSION_LIFETIME（無操作タイムアウト）を効かせる。
             # session.clear() が permanent を False に戻すため、必ずこの後に設定する。
             session.permanent = True
             session["username"] = row[0]
-            # V28: g.user はまだ未設定（次リクエストで確定）のため actor を明示
-            log_event("login_success", actor=row[0], actor_name=row[3])
+            session["authenticated_at"] = now_utc().isoformat(timespec="seconds")
+            # g.user はまだ未設定（次リクエストで確定）のため actor を明示
+            safe_log_event("login_success", actor=row[0], actor_name=row[3])
             return redirect(url_for("menu"))
-        # V27: 該当ユーザーが居ない場合もダミー検証で応答時間を揃える（ID 列挙対策）
+        # 該当ユーザーが居ない場合もダミー検証で応答時間を揃える（ID 列挙対策）
         if not row:
             check_password_hash(_DUMMY_PW_HASH, p)
-        # V28: 失敗は試行 ID を actor として記録（パスワードは記録しない）
-        log_event("login_fail", actor=(u or "anonymous"))
+        # 失敗は試行 ID を actor として記録（パスワードは記録しない）
+        safe_log_event("login_fail", actor=(u or "anonymous"))
         return render_template("login.html", error="IDまたはパスワードが正しくありません")
     return render_template("login.html")
 
@@ -599,24 +444,30 @@ def menu():
         return redirect(url_for("login"))
     links = get_month_links()
     with closing(get_db()) as conn:
-        # V28: 未提出判定も username を権威キーに（表示名変更後もズレない）
+        # 未提出判定も username を権威キーに（表示名変更後もズレない）
         exists = conn.execute(
             "SELECT 1 FROM shifts WHERE year=? AND month=? AND username=?",
             (links["next_y"], links["next_m"], g.user.username),
         ).fetchone()
-    return render_template("menu.html", unsubmitted=not exists, next_m=links["next_m"])
+    backup_state = db_manager.status()
+    return render_template(
+        "menu.html",
+        unsubmitted=not exists,
+        next_m=links["next_m"],
+        backup_error=backup_state.get("last_backup_error", ""),
+        backup_success=backup_state.get("last_backup_success", ""),
+        disk_low=backup_state.get("disk_free_ratio", 1) < 0.1,
+    )
 
 
-def handle_input(template, target_username, target_name, confirmed=False):
-    """カレンダー入力の共通処理（V28 で username 基準に一般化）。
-
-    confirmed=False: 希望(shifts) を本人が提出。備考あり。
-    confirmed=True:  確定(confirmed_shifts) を管理者が編集。備考なし。GET 時は当人の
-                     希望を request_hint として下敷き表示する。
-    DELETE/INSERT は **username** を権威キーにする（表示名の改ざん・rename に影響されない）。
-    table 名は user 入力ではなくサーバ制御の分岐で切替（動的 SQL を作らない方針を維持）。
-    """
-    now = datetime.now()
+def handle_input(
+    template,
+    target_username,
+    target_name,
+    confirmed=False,
+    input_endpoint=None,
+):
+    now = now_jst()
     year, month = safe_ym(now.year, now.month)
     cal = calendar.monthcalendar(year, month)
 
@@ -654,7 +505,7 @@ def handle_input(template, target_username, target_name, confirmed=False):
                                 "VALUES (?,?,?,?,?,?,?)",
                                 (year, month, day, target_username, target_name, status, remark),
                             )
-            # V28: 監査ログ。備考(remark)本文は記録せず、年月と〇件数のメタのみ。
+            # 監査ログ。備考(remark)本文は記録せず、年月と〇件数のメタのみ。
             # detail には安定ID(username)を必ず含める（表示名変更後も「誰の分か」を追跡可能に）。
             # target は年月のまま（/submissions の最終提出時刻クエリが target=YYYY-MM を使うため）。
             log_action(
@@ -666,9 +517,14 @@ def handle_input(template, target_username, target_name, confirmed=False):
             flash("確定シフトを保存しました")
             return redirect(url_for("confirm_user", username=target_username,
                                     year=year, month=month))
-        if template == "index.html":
-            return redirect(url_for("index", year=year, month=month, submitted="true"))
-        return redirect(url_for("worker", name=target_name, year=year, month=month, submitted="true"))
+        return redirect(
+            url_for(
+                input_endpoint or "worker",
+                year=year,
+                month=month,
+                submitted="true",
+            )
+        )
 
     with closing(get_db()) as conn:
         if confirmed:
@@ -698,7 +554,9 @@ def handle_input(template, target_username, target_name, confirmed=False):
             request_hint = {}
     return render_template(
         template, name=target_name, year=year, month=month, cal=cal, shifts=existing,
-        request_hint=request_hint, target_username=target_username, **get_month_links()
+        request_hint=request_hint, target_username=target_username,
+        input_endpoint=input_endpoint, weekday_names=("日", "月", "火", "水", "木", "金", "土"),
+        **get_month_links()
     )
 
 
@@ -707,20 +565,46 @@ def index():
     guard = deny_if_not_admin()
     if guard:
         return guard
-    return handle_input("index.html", g.user.username, g.user.name)
+    return handle_input(
+        "shift_form.html",
+        g.user.username,
+        g.user.name,
+        input_endpoint="index",
+    )
+
+
+@app.route("/worker", methods=["GET", "POST"])
+def worker():
+    if not require_login():
+        return redirect(url_for("login"))
+    return handle_input(
+        "shift_form.html",
+        g.user.username,
+        g.user.name,
+        input_endpoint="worker",
+    )
 
 
 @app.route("/worker/<name>", methods=["GET", "POST"])
-def worker(name):
+def worker_legacy(name):
     if not require_login():
         return redirect(url_for("login"))
-    # V8: 他人のシフト入力画面を叩いたときはログイン画面ではなくメニューへ
-    # （「ログアウトされた？」と混乱するのを防ぐ）
     if g.user.name != name:
         flash("自分のシフト入力画面以外にはアクセスできません")
         return redirect(url_for("menu"))
-    # V28: 書き込みキーは認証済みの username（path の name は本人確認のみに使用）
-    return handle_input("worker.html", g.user.username, g.user.name)
+    if request.method == "POST":
+        return handle_input(
+            "shift_form.html",
+            g.user.username,
+            g.user.name,
+            input_endpoint="worker",
+        )
+    query = {
+        key: request.args[key]
+        for key in ("year", "month")
+        if request.args.get(key) is not None
+    }
+    return redirect(url_for("worker", **query))
 
 
 @app.route("/admin")
@@ -729,10 +613,10 @@ def admin():
     guard = deny_if_not_admin()
     if guard:
         return guard
-    now = datetime.now()
+    now = now_jst()
     year, month = safe_ym(now.year, now.month)
     with closing(get_db()) as conn:
-        # V28: JOIN を username 基準に（rename 取りこぼし解消）。表示名・色は users 側の最新を使う
+        # JOIN を username 基準に（rename 取りこぼし解消）。表示名・色は users 側の最新を使う
         rows = conn.execute(
             "SELECT s.day, u.name, s.status, u.color, s.remarks "
             "FROM shifts s INNER JOIN users u ON s.username = u.username "
@@ -757,7 +641,7 @@ def manage_users():
         if request.method == "POST":
             with conn:
                 action = request.form.get("action")
-                # V20: 編集モードでは original_username を権威とし、フォームの username 入力は無視
+                # 編集モードでは original_username を権威とし、フォームの username 入力は無視
                 #   1) DB 検索キーが書き換わらないことを保証
                 #   2) 「太郎を修正したつもりが新規ユーザー作成」事故を防止
                 mode = (request.form.get("mode") or "create").strip()
@@ -777,18 +661,18 @@ def manage_users():
                     existing = conn.execute(
                         "SELECT name, role FROM users WHERE username=?", (u,)
                     ).fetchone()
-                    # Codex(後追加)#2: 表示名の重複検査（同 username なら自分自身なので除外）
+                    # 表示名の重複検査（同 username なら自分自身なので除外）
                     dup = conn.execute(
                         "SELECT username FROM users WHERE name=? AND username != ?",
                         (n, u),
                     ).fetchone()
-                    # Codex#1: すべての検証を先に通し、検証通過後にだけ DB を更新する
+                    # すべての検証を先に通し、検証通過後にだけ DB を更新する
                     # （検証失敗時に shifts.name だけ先に変わって users と不整合になる事故を防ぐ）
                     if mode == "edit" and not existing:
-                        # V20: 編集対象が消えている / ID 改ざんを検知
+                        # 編集対象が消えている / ID 改ざんを検知
                         flash("編集対象のユーザーが見つかりません。ID 変更は禁止です（停止 → 削除 → 新規登録の手順で行ってください）")
                     elif mode == "create" and existing:
-                        # V20: 重複登録を明示的に拒否（修正したいなら一覧の「修正」を使う）
+                        # 重複登録を明示的に拒否（修正したいなら一覧の「修正」を使う）
                         flash(f"そのID（{u}）は既に登録されています。修正する場合は一覧の「修正」ボタンから操作してください")
                     elif r not in ("admin", "worker"):
                         flash("権限の値が不正です")
@@ -797,16 +681,16 @@ def manage_users():
                     elif not n or len(n) > 32:
                         flash("お名前は1〜32文字で入力してください")
                     elif NAME_FORBIDDEN_RE.search(n):
-                        # Codex(後追加)#3: 表示名は URL パスに入るため / 等を禁止
+                        # 表示名は URL パスに入るため / 等を禁止
                         flash("お名前に使えない文字（/ \\ ? # & < > 改行 等）が含まれています")
                     elif dup:
                         flash(f"同じ表示名のユーザー（ID: {dup[0]}）が既に存在します")
-                    elif existing and p and not is_valid_password(p):
-                        flash("パスワードは8文字以上で入力してください")
-                    elif not existing and not is_valid_password(p):
-                        flash("パスワードは8文字以上で入力してください")
+                    elif existing and p and not is_valid_password(p, u):
+                        flash(password_error(p, u))
+                    elif not existing and not is_valid_password(p, u):
+                        flash(password_error(p, u))
                     elif existing and existing[1] != r and u == g.user.username:
-                        # Codex(後追加)#1: 自分自身の権限変更を禁止（自己降格による締め出し防止）
+                        # 自分自身の権限変更を禁止（自己降格による締め出し防止）
                         flash("自分自身の権限は変更できません")
                     elif (
                         existing
@@ -817,26 +701,29 @@ def manage_users():
                         ).fetchone()[0]
                         <= 1
                     ):
-                        # Codex(後追加)#1: 最後の有効な管理者は降格できない
+                        # 最後の有効な管理者は降格できない
                         flash("有効な管理者が最低1人残るよう、最後の管理者を降格することはできません")
                     else:
                         if existing:
                             # 表示名変更時はシフト名も連動（J の根本対応はフェーズ3）
                             if existing[0] != n:
                                 conn.execute(
-                                    "UPDATE shifts SET name=? WHERE name=?",
-                                    (n, existing[0]),
+                                    "UPDATE shifts SET name=? WHERE username=?",
+                                    (n, u),
                                 )
                             if p:
-                                # V23: 管理者が新しいパスワードを設定した場合は
+                                # 管理者が新しいパスワードを設定した場合は
                                 # 本人の初回ログイン時に強制変更を促す
                                 conn.execute(
                                     "UPDATE users SET password=?, role=?, name=?, color=?, "
                                     "must_change_password=1 WHERE username=?",
-                                    (generate_password_hash(p), r, n, col, u),
+                                    (
+                                        generate_password_hash(normalize_password(p)),
+                                        r, n, col, u,
+                                    ),
                                 )
                                 log_action(conn, "user_edit", target=u, detail={"name": n, "role": r})
-                                # V28: 管理者による他人のパスワード設定を専用イベントで記録（再発行運用の証跡）
+                                # 管理者による他人のパスワード設定を専用イベントで記録（再発行運用の証跡）
                                 log_action(conn, "admin_password_set", target=u)
                                 flash("ユーザー情報を保存しました（本人は次回ログイン時にパスワード変更を求められます）")
                             else:
@@ -848,33 +735,37 @@ def manage_users():
                                 log_action(conn, "user_edit", target=u, detail={"name": n, "role": r})
                                 flash("ユーザー情報を保存しました（パスワードは変更なし）")
                         else:
-                            # V23: 新規ユーザーは初回ログイン時にパスワード変更必須
+                            # 新規ユーザーは初回ログイン時にパスワード変更必須
                             conn.execute(
                                 "INSERT INTO users "
                                 "(username, password, role, name, is_active, color, must_change_password) "
                                 "VALUES (?, ?, ?, ?, 1, ?, 1)",
-                                (u, generate_password_hash(p), r, n, col),
+                                (
+                                    u,
+                                    generate_password_hash(normalize_password(p)),
+                                    r, n, col,
+                                ),
                             )
                             log_action(conn, "user_create", target=u, detail={"name": n, "role": r})
                             flash("ユーザーを登録しました（本人は初回ログイン時にパスワード変更を求められます）")
                 elif action == "toggle":
-                    try:
-                        s = int(request.form.get("current_status", ""))
-                    except ValueError:
-                        s = -1
-                    # Codex(後追加)#1: 自分自身の停止禁止 + 最後の有効 admin の停止禁止
+                    target = conn.execute(
+                        "SELECT role, is_active FROM users WHERE username=?",
+                        (u,),
+                    ).fetchone()
+                    # 自分自身の停止禁止 + 最後の有効 admin の停止禁止
                     if u == g.user.username:
                         flash("自分自身を停止することはできません")
                     elif u == "admin":
                         # 既存の固定保護（初期 admin 行）を維持
-                        pass
-                    elif s in (0, 1):
+                        flash("初期管理者は停止できません")
+                    elif not target:
+                        flash("対象のユーザーが見つかりません")
+                    else:
+                        current_active = target[1]
                         allow = True
-                        if s == 1:  # 1 → 0（停止に向かう）
-                            target = conn.execute(
-                                "SELECT role FROM users WHERE username=?", (u,)
-                            ).fetchone()
-                            if target and target[0] == "admin":
+                        if current_active == 1:  # 1 → 0（停止に向かう）
+                            if target[0] == "admin":
                                 admin_count = conn.execute(
                                     "SELECT COUNT(*) FROM users WHERE role='admin' AND is_active=1"
                                 ).fetchone()[0]
@@ -882,14 +773,14 @@ def manage_users():
                                     flash("最後の有効な管理者を停止することはできません")
                                     allow = False
                         if allow:
-                            new_active = 0 if s == 1 else 1
+                            new_active = 0 if current_active == 1 else 1
                             conn.execute(
                                 "UPDATE users SET is_active=? WHERE username=?",
                                 (new_active, u),
                             )
                             log_action(conn, "user_toggle", target=u, detail={"is_active": new_active})
                 elif action == "delete":
-                    # V19: 試用初期は UI から削除ボタンを撤去（manage_users.html）。
+                    # 試用初期は UI から削除ボタンを撤去（manage_users.html）。
                     # 万一直接 POST が来ても、停止運用に寄せるため一律で拒否する。
                     # 物理削除が必要なら、バックアップ後に管理 CLI（sqlite3）で行う運用。
                     flash("削除は管理操作で行ってください。停止で十分なケースが大半です。")
@@ -902,7 +793,7 @@ def manage_users():
 
 @app.route("/logs")
 def logs():
-    # V28: 操作ログの閲覧（管理者専用）。V29: 共通ガードに統一。
+    # 操作ログの閲覧（管理者専用）。V29: 共通ガードに統一。
     guard = deny_if_not_admin()
     if guard:
         return guard
@@ -913,24 +804,43 @@ def logs():
     offset = (page - 1) * per
     with closing(get_db()) as conn:
         total = conn.execute("SELECT COUNT(*) FROM audit_log").fetchone()[0]
-        rows = conn.execute(
+        raw_rows = conn.execute(
             "SELECT ts, actor, actor_name, action, target, detail, ip "
             "FROM audit_log ORDER BY id DESC LIMIT ? OFFSET ?",
             (per, offset),
         ).fetchall()
+    rows = [(format_jst(row[0]), *row[1:]) for row in raw_rows]
+    labels = {
+        "login_success": "ログイン成功",
+        "login_fail": "ログイン失敗",
+        "logout": "ログアウト",
+        "csrf_error": "セッション切れ",
+        "authz_fail": "権限エラー",
+        "password_change": "パスワード変更",
+        "user_create": "ユーザー追加",
+        "user_edit": "ユーザー修正",
+        "user_toggle": "停止・復活",
+        "admin_password_set": "一時パスワード設定",
+        "request_submit": "希望提出",
+        "confirm_save": "確定保存",
+    }
     return render_template(
-        "logs.html", rows=rows, page=page, total=total,
+        "logs.html",
+        rows=rows,
+        page=page,
+        total=total,
         has_next=(offset + per < total),
+        labels=labels,
     )
 
 
 @app.route("/submissions")
 def submissions():
-    # V28: 提出状況の一覧（管理者専用）。shifts から導出し、最終提出時刻は audit_log から取得。
+    # 提出状況の一覧（管理者専用）。shifts から導出し、最終提出時刻は audit_log から取得。
     guard = deny_if_not_admin()
     if guard:
         return guard
-    now = datetime.now()
+    now = now_jst()
     year, month = safe_ym(now.year, now.month)
     with closing(get_db()) as conn:
         users = conn.execute(
@@ -952,7 +862,7 @@ def submissions():
             ).fetchall()
         }
         last_at = {
-            row[0]: row[1]
+            row[0]: format_jst(row[1])
             for row in conn.execute(
                 "SELECT actor, MAX(ts) FROM audit_log "
                 "WHERE action='request_submit' AND target=? GROUP BY actor",
@@ -977,11 +887,11 @@ def submissions():
 
 @app.route("/confirm")
 def confirm():
-    # V28: 確定シフトの作成/編集（管理者専用）。職員を選んで個別に編集する一覧。
+    # 確定シフトの作成/編集（管理者専用）。職員を選んで個別に編集する一覧。
     guard = deny_if_not_admin()
     if guard:
         return guard
-    now = datetime.now()
+    now = now_jst()
     year, month = safe_ym(now.year, now.month)
     with closing(get_db()) as conn:
         users = conn.execute(
@@ -1007,7 +917,7 @@ def confirm():
 
 @app.route("/confirm/<username>", methods=["GET", "POST"])
 def confirm_user(username):
-    # V28: 指定職員の確定シフトを編集（管理者専用）。username は ? バインドで安全に照合。
+    # 指定職員の確定シフトを編集（管理者専用）。username は ? バインドで安全に照合。
     guard = deny_if_not_admin()
     if guard:
         return guard
@@ -1024,10 +934,10 @@ def confirm_user(username):
 
 @app.route("/confirmed")
 def confirmed():
-    # V28: 確定シフトのチーム全体表示（ログイン必須・読み取り専用）。備考は出さない。
+    # 確定シフトのチーム全体表示（ログイン必須・読み取り専用）。備考は出さない。
     if not require_login():
         return redirect(url_for("login"))
-    now = datetime.now()
+    now = now_jst()
     year, month = safe_ym(now.year, now.month)
     with closing(get_db()) as conn:
         rows = conn.execute(
@@ -1045,8 +955,8 @@ def confirmed():
 @app.route("/change_password", methods=["GET", "POST"])
 @limiter.limit("10 per minute", methods=["POST"])
 def change_password():
-    # V1: ログイン必須化（未ログインの username 当て攻撃面を撤去）。
-    # V23: must_change_password=1 の本人もこの画面に強制誘導される。
+    # ログイン必須化（未ログインの username 当て攻撃面を撤去）。
+    # must_change_password=1 の本人もこの画面に強制誘導される。
     if not require_login():
         return redirect(url_for("login"))
     u = g.user.username
@@ -1057,18 +967,34 @@ def change_password():
             row = conn.execute(
                 "SELECT password FROM users WHERE username=? AND is_active=1", (u,)
             ).fetchone()
-        if not row or not check_password_hash(row[0], p_curr) or not is_valid_password(p_new):
+        normalized_current = normalize_password(p_curr)
+        current_matches = bool(
+            row
+            and (
+                check_password_hash(row[0], p_curr)
+                or (
+                    normalized_current != p_curr
+                    and check_password_hash(row[0], normalized_current)
+                )
+            )
+        )
+        validation_error = password_error(p_new, u)
+        if not current_matches or validation_error:
             return render_template(
                 "change_password.html",
-                error="現在のパスワードが間違っているか、新しいパスワードが不正です（8文字以上）",
+                error=(
+                    "現在のパスワードが正しくありません"
+                    if not current_matches
+                    else validation_error
+                ),
             )
         with closing(get_db()) as conn, conn:
-            # V23: 変更成功で must_change_password=0 に戻す
+            # 変更成功で must_change_password=0 に戻す
             conn.execute(
                 "UPDATE users SET password=?, must_change_password=0 WHERE username=?",
-                (generate_password_hash(p_new), u),
+                (generate_password_hash(normalize_password(p_new)), u),
             )
-            # V28: 監査ログ（新旧パスワードは記録しない）
+            # 監査ログ（新旧パスワードは記録しない）
             log_action(conn, "password_change")
         session.clear()
         flash("パスワードを変更しました。再度ログインしてください。")
@@ -1082,18 +1008,32 @@ def help_page():
     return render_template("help.html")
 
 
-@app.route("/logout")
+@app.route("/logout", methods=["GET", "POST"])
 def logout():
-    # V28: session.clear() の前に記録（actor を g.user から取得できるうちに）
+    if request.method == "GET":
+        if require_login():
+            flash("ログアウトする場合はメニューのボタンを押してください。")
+            return redirect(url_for("menu"))
+        return redirect(url_for("login"))
     if getattr(g, "user", None):
-        log_event("logout")
+        safe_log_event("logout")
     session.clear()
+    flash("ログアウトしました。")
     return redirect(url_for("login"))
 
 
 @app.route("/healthz")
 def healthz():
     return {"status": "ok"}, 200
+
+
+@app.route("/readyz")
+def readyz():
+    try:
+        ready = db_manager.ready_check()
+    except Exception:
+        ready = False
+    return ({"status": "ready"}, 200) if ready else ({"status": "unavailable"}, 503)
 
 
 if __name__ == "__main__":

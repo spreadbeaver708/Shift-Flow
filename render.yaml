@@ -15,7 +15,7 @@ services:
     region: singapore          # 日本にいちばん近いリージョン
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn -w 1 -b 0.0.0.0:$PORT app:app
-    healthCheckPath: /healthz  # 起動の生存確認に使うURL（アプリに実装済み）
+    healthCheckPath: /readyz   # DBを含む準備完了確認。/healthz はプロセス生存確認
 
     # 永続ディスク = 再公開・再起動してもデータが消えない保存場所
     disk:
@@ -32,10 +32,16 @@ services:
         value: "1"                  # Render はプロキシ経由のため 1（HTTPS判定とIP別レート制限に必要）
       - key: SESSION_IDLE_MINUTES
         value: "30"                 # 無操作でこの分数を過ぎると自動ログアウト（個人端末の置き忘れ対策）
+      - key: SESSION_ABSOLUTE_HOURS
+        value: "24"                 # 操作を続けていても、この時間で再ログインを求める
       - key: TRUST_CF_CONNECTING_IP
         value: "1"                  # 前段がCloudflare/Renderエッジのため、真のクライアントIPを CF-Connecting-IP から取得（レート制限・監査ログの精度）
       - key: LOGIN_RATE_LIMIT
         value: "20 per minute"      # ログイン試行の上限（10名運用で締め出されにくく）。必要なら調整
+      - key: BACKUP_KEEP
+        value: "14"                 # 日次バックアップの保持数
+      - key: MONTHLY_BACKUP_KEEP
+        value: "12"                 # 月次バックアップの保持数
       - key: PYTHON_VERSION
         value: "3.14.5"             # 3.14.5 で GC が generational に戻り本番のメモリ挙動が安定（動作再現性のため固定）
       - key: SECRET_KEY

@@ -1,6 +1,8 @@
-"""シフト入力フローのテスト（V4, V5, O）。"""
+"""シフト入力フローのテスト。"""
 
 from contextlib import closing
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 
 def test_admin_post_redirects_to_index_with_submitted(admin_client):
@@ -47,15 +49,17 @@ def test_index_html_has_no_inline_onclick(admin_client):
     body = resp.get_data(as_text=True)
     # CSP 導入に備え、HTML 出力に onclick= は一切残らないこと
     assert "onclick=" not in body
-    # V25: 備考モーダルが共通パーシャル経由で描画されている
+    # 備考モーダルが共通パーシャル経由で描画されている
     assert 'id="remarkModal"' in body
     assert 'id="modalSaveBtn"' in body
 
 
 def test_worker_html_has_no_inline_onclick(admin_client, app_module):
-    """V12: worker.html の inline onclick が全廃されている。"""
-    # admin の名前で worker ページに入れる
-    resp = admin_client.get("/worker/管理者")
+    """共通入力画面にinline onclickがなく、旧URLは正規URLへ移る。"""
+    legacy = admin_client.get("/worker/管理者", follow_redirects=False)
+    assert legacy.status_code == 302
+    assert legacy.headers["Location"].endswith("/worker")
+    resp = admin_client.get("/worker")
     body = resp.get_data(as_text=True)
     assert "onclick=" not in body
     assert 'id="remarkModal"' in body
@@ -76,3 +80,28 @@ def test_menu_unsubmitted_uses_username(admin_client):
     admin_client.post(f"/?year={ny}&month={nm}", data=data)
     # 提出後: 警告が消える
     assert "未提出" not in admin_client.get("/menu").get_data(as_text=True)
+
+
+def test_month_links_use_japan_time(app_module, monkeypatch):
+    monkeypatch.setattr(
+        app_module,
+        "now_jst",
+        lambda: datetime(2027, 1, 1, 0, 30, tzinfo=ZoneInfo("Asia/Tokyo")),
+    )
+    links = app_module.get_month_links()
+    assert links == {"now_y": 2027, "now_m": 1, "next_y": 2027, "next_m": 2}
+
+
+def test_remark_has_client_limit_and_server_truncates(admin_client, app_module):
+    body = admin_client.get("/").get_data(as_text=True)
+    assert 'maxlength="500"' in body
+    admin_client.post(
+        "/?year=2026&month=6",
+        data={"day_1": "〇", "remark_1": "x" * 600},
+    )
+    with closing(app_module.get_db()) as conn:
+        remark = conn.execute(
+            "SELECT remarks FROM shifts WHERE username='admin' AND year=2026 "
+            "AND month=6 AND day=1"
+        ).fetchone()[0]
+    assert len(remark) == 500
