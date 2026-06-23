@@ -6,7 +6,7 @@ def _add_worker(admin_client, username="taro", name="太郎"):
         "/manage_users",
         data={
             "action": "add", "mode": "create", "username": username,
-            "password": "taropass1", "name": name, "role": "worker", "color": "#e8f5e9",
+            "password": "Taro-Initial-Passphrase-2026", "name": name, "role": "worker", "color": "#e8f5e9",
         },
     )
 
@@ -24,18 +24,21 @@ def test_submissions_reflects_submission(admin_client):
     # admin 自身が 2026-06 の希望を提出
     admin_client.post("/", data={"year": "2026", "month": "6", "day_1": "〇"})
     resp = admin_client.get("/submissions?year=2026&month=6")
-    assert "提出済" in resp.get_data(as_text=True)
+    body = resp.get_data(as_text=True)
+    assert "提出済" in body
+    assert "<td>1</td>" in body
+    assert "2026-" in body
 
 
 def test_submissions_forbidden_for_worker(admin_client):
     _add_worker(admin_client)
-    admin_client.get("/logout")
-    admin_client.post("/login", data={"username": "taro", "password": "taropass1"})
+    admin_client.post("/logout")
+    admin_client.post("/login", data={"username": "taro", "password": "Taro-Initial-Passphrase-2026"})
     admin_client.post(
         "/change_password",
-        data={"password_current": "taropass1", "password_new": "taropass2"},
+        data={"password_current": "Taro-Initial-Passphrase-2026", "password_new": "Taro-Changed-Passphrase-2026"},
     )
-    admin_client.post("/login", data={"username": "taro", "password": "taropass2"})
+    admin_client.post("/login", data={"username": "taro", "password": "Taro-Changed-Passphrase-2026"})
     assert admin_client.get("/submissions").status_code == 403
 
 

@@ -7,7 +7,6 @@
 - users.name の UNIQUE 索引
 """
 
-import glob
 import importlib
 import os
 import secrets
@@ -22,16 +21,16 @@ def _become_worker(admin_client, username="taro", name="太郎"):
         "/manage_users",
         data={
             "action": "add", "mode": "create", "username": username,
-            "password": "taropass1", "name": name, "role": "worker", "color": "#e8f5e9",
+            "password": "Taro-Initial-Passphrase-2026", "name": name, "role": "worker", "color": "#e8f5e9",
         },
     )
-    admin_client.get("/logout")
-    admin_client.post("/login", data={"username": username, "password": "taropass1"})
+    admin_client.post("/logout")
+    admin_client.post("/login", data={"username": username, "password": "Taro-Initial-Passphrase-2026"})
     admin_client.post(
         "/change_password",
-        data={"password_current": "taropass1", "password_new": "taropass2"},
+        data={"password_current": "Taro-Initial-Passphrase-2026", "password_new": "Taro-Changed-Passphrase-2026"},
     )
-    admin_client.post("/login", data={"username": username, "password": "taropass2"})
+    admin_client.post("/login", data={"username": username, "password": "Taro-Changed-Passphrase-2026"})
 
 
 # ===== client_ip / CF-Connecting-IP =====
@@ -42,7 +41,7 @@ def test_client_ip_prefers_cf_when_trusted(monkeypatch, tmp_path):
     monkeypatch.setenv("APP_ENV", "development")
     monkeypatch.setenv("SECRET_KEY", secrets.token_hex(16))
     monkeypatch.setenv("SHIFT_DB_PATH", str(tmp_path / "shift.db"))
-    monkeypatch.setenv("ADMIN_INIT_PASSWORD", "adminpass1")
+    monkeypatch.setenv("ADMIN_INIT_PASSWORD", "Admin-Initial-Passphrase-2026")
     monkeypatch.setenv("RATELIMIT_STORAGE_URI", "memory://")
     monkeypatch.setenv("TRUSTED_PROXY_HOPS", "0")
     monkeypatch.setenv("TRUST_CF_CONNECTING_IP", "1")
@@ -63,7 +62,7 @@ def test_client_ip_rejects_malformed_cf_header(monkeypatch, tmp_path):
     monkeypatch.setenv("APP_ENV", "development")
     monkeypatch.setenv("SECRET_KEY", secrets.token_hex(16))
     monkeypatch.setenv("SHIFT_DB_PATH", str(tmp_path / "shift.db"))
-    monkeypatch.setenv("ADMIN_INIT_PASSWORD", "adminpass1")
+    monkeypatch.setenv("ADMIN_INIT_PASSWORD", "Admin-Initial-Passphrase-2026")
     monkeypatch.setenv("RATELIMIT_STORAGE_URI", "memory://")
     monkeypatch.setenv("TRUSTED_PROXY_HOPS", "0")
     monkeypatch.setenv("TRUST_CF_CONNECTING_IP", "1")
@@ -118,7 +117,7 @@ def test_authz_fail_is_audited(admin_client, app_module):
     assert any("/manage_users" in (r[1] or "") for r in rows)
 
 
-def test_anonymous_admin_route_redirects_to_login(app_module):
+def test_anonymous_manage_users_redirects_to_login(app_module):
     """未ログインは 403 ではなく login へ。"""
     with app_module.app.test_client() as c:
         resp = c.get("/manage_users", follow_redirects=False)
@@ -146,15 +145,10 @@ def test_max_content_length_configured(app_module):
 # ===== backup_db =====
 
 
-def test_backup_db_creates_and_prunes(app_module, monkeypatch):
-    """V29: backup_db() は世代を作り、BACKUP_KEEP を超えた古い世代を削除する。最新は健全。"""
-    monkeypatch.setattr(app_module, "BACKUP_KEEP", 3)
-    last = None
-    for _ in range(6):
-        last = app_module.backup_db()
-    bdir = os.path.dirname(last)
-    files = glob.glob(os.path.join(bdir, "shift-*.db"))
-    assert len(files) == 3
+def test_backup_db_creates_healthy_manual_backup(app_module):
+    """手動バックアップを作成し、SQLiteの健全性を確認できる。"""
+    last = app_module.backup_db()
+    assert os.path.basename(last).startswith("manual-")
     with closing(sqlite3.connect(last)) as c:
         assert c.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         names = {r[0] for r in c.execute(
@@ -174,18 +168,33 @@ def test_users_name_unique_index_present(app_module):
     assert idx is not None
 
 
-def test_backup_keep_clamped_to_min_1(monkeypatch, tmp_path):
-    """V29: BACKUP_KEEP=0/負数は剪定無効化に倒れず最低 1 に clamp される。"""
+def test_backup_keep_invalid_value_fails_fast(monkeypatch, tmp_path):
+    """BACKUP_KEEP=0は安全な値へ黙って変更せず、設定エラーにする。"""
     monkeypatch.setenv("APP_ENV", "development")
     monkeypatch.setenv("SECRET_KEY", secrets.token_hex(16))
     monkeypatch.setenv("SHIFT_DB_PATH", str(tmp_path / "shift.db"))
-    monkeypatch.setenv("ADMIN_INIT_PASSWORD", "adminpass1")
+    monkeypatch.setenv("ADMIN_INIT_PASSWORD", "Admin-Initial-Passphrase-2026")
     monkeypatch.setenv("RATELIMIT_STORAGE_URI", "memory://")
     monkeypatch.setenv("TRUSTED_PROXY_HOPS", "0")
     monkeypatch.setenv("BACKUP_KEEP", "0")
     sys.modules.pop("app", None)
-    mod = importlib.import_module("app")
-    try:
-        assert mod.BACKUP_KEEP == 1
-    finally:
-        sys.modules.pop("app", None)
+    import pytest
+    with pytest.raises(RuntimeError, match="BACKUP_KEEP"):
+        importlib.import_module("app")
+    sys.modules.pop("app", None)
+
+
+def test_readyz_checks_database(client):
+    response = client.get("/readyz")
+    assert response.status_code == 200
+    assert response.get_json() == {"status": "ready"}
+
+
+def test_healthz_is_liveness_and_readyz_reports_db_failure(client, app_module, monkeypatch):
+    monkeypatch.setattr(
+        app_module.db_manager,
+        "ready_check",
+        lambda: (_ for _ in ()).throw(sqlite3.OperationalError("unavailable")),
+    )
+    assert client.get("/healthz").status_code == 200
+    assert client.get("/readyz").status_code == 503

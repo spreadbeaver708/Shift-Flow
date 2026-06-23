@@ -1,68 +1,39 @@
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-    <title>操作ログ</title>
-</head>
-<body>
-    {# 操作名の日本語ラベル（未知のキーはそのまま表示） #}
-    {% set labels = {
-        'login_success': 'ログイン成功',
-        'login_fail': 'ログイン失敗',
-        'logout': 'ログアウト',
-        'password_change': 'パスワード変更',
-        'admin_password_set': '管理者がパスワード設定',
-        'user_create': 'ユーザー登録',
-        'user_edit': 'ユーザー編集',
-        'user_toggle': '停止/復活',
-        'request_submit': 'シフト希望の提出',
-        'confirm_save': '確定シフトの保存',
-        'csrf_error': 'セッション切れ(CSRF)'
-    } %}
-    <div class="container">
-        <h1>操作ログ</h1>
-        <a href="{{ url_for('menu') }}" class="btn-back">← メニューに戻る</a>
+{% extends "base.html" %}
+{% from "_macros.html" import back_link %}
 
-        <p style="color:#888; font-size:0.85rem;">
-            新しい順・最新 {{ '{:,}'.format(total) }} 件を保持（日時は UTC）。
-            パスワードや備考の本文は記録していません。
-        </p>
+{% block title %}操作ログ{% endblock %}
 
-        <div style="overflow-x:auto;">
-        <table style="width:100%; border-collapse:collapse; font-size:0.85rem;">
-            <tr style="background:#f0f0f0; text-align:left;">
-                <th style="padding:6px; white-space:nowrap;">日時(UTC)</th>
-                <th style="padding:6px;">操作者</th>
-                <th style="padding:6px;">操作</th>
-                <th style="padding:6px;">対象</th>
-                <th style="padding:6px;">詳細</th>
-                <th style="padding:6px;">IP</th>
-            </tr>
-            {% for r in rows %}
-            <tr style="border-bottom:1px solid #eee;">
-                <td style="padding:6px; white-space:nowrap; color:#666;">{{ r[0] }}</td>
-                <td style="padding:6px;">{{ r[2] }}{% if r[1] and r[1] != r[2] %} <span style="color:#999;">({{ r[1] }})</span>{% endif %}</td>
-                <td style="padding:6px; white-space:nowrap;">{{ labels.get(r[3], r[3]) }}</td>
-                <td style="padding:6px;">{{ r[4] }}</td>
-                <td style="padding:6px; color:#555; word-break:break-all;">{{ r[5] }}</td>
-                <td style="padding:6px; color:#999; white-space:nowrap;">{{ r[6] }}</td>
-            </tr>
-            {% else %}
-            <tr><td colspan="6" style="padding:14px; text-align:center; color:#999;">記録はまだありません</td></tr>
-            {% endfor %}
-        </table>
-        </div>
+{% block content %}
+<header class="page-header">
+    <h1>操作ログ</h1>
+    <p>ログインや管理操作の記録です。時刻は日本時間です。</p>
+</header>
+{{ back_link(url_for('menu')) }}
 
-        <div style="display:flex; gap:10px; justify-content:center; margin-top:18px;">
-            {% if page > 1 %}
-            <a href="{{ url_for('logs', page=page-1) }}" class="btn-month" style="background:var(--sub);">← 新しい100件</a>
-            {% endif %}
-            {% if has_next %}
-            <a href="{{ url_for('logs', page=page+1) }}" class="btn-month" style="background:var(--sub);">古い100件 →</a>
-            {% endif %}
-        </div>
-    </div>
-</body>
-</html>
+<div class="table-scroll">
+<table class="data-table data-table-compact">
+    <thead>
+        <tr><th>日時（JST）</th><th>操作者</th><th>操作</th><th>対象</th><th>詳細</th><th>IP</th></tr>
+    </thead>
+    <tbody>
+    {% for row in rows %}
+        <tr>
+            <td>{{ row[0] }}</td>
+            <td>{{ row[2] or row[1] }}{% if row[2] and row[1] != row[2] %} <small>({{ row[1] }})</small>{% endif %}</td>
+            <td>{{ labels.get(row[3], row[3]) }}</td>
+            <td>{{ row[4] }}</td>
+            <td class="break-word">{{ row[5] }}</td>
+            <td>{{ row[6] }}</td>
+        </tr>
+    {% else %}
+        <tr><td colspan="6" class="empty-state">記録はまだありません。</td></tr>
+    {% endfor %}
+    </tbody>
+</table>
+</div>
+
+<nav class="pagination" aria-label="操作ログのページ">
+    {% if page > 1 %}<a href="{{ url_for('logs', page=page-1) }}" class="btn btn-secondary">← 新しい100件</a>{% endif %}
+    {% if has_next %}<a href="{{ url_for('logs', page=page+1) }}" class="btn btn-secondary">古い100件 →</a>{% endif %}
+</nav>
+{% endblock %}

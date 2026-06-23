@@ -22,7 +22,7 @@ def test_csrf_error_handler_redirects_to_login(tmp_path, monkeypatch):
     monkeypatch.setenv("APP_ENV", "development")
     monkeypatch.setenv("SECRET_KEY", secrets.token_hex(16))
     monkeypatch.setenv("SHIFT_DB_PATH", str(db_path))
-    monkeypatch.setenv("ADMIN_INIT_PASSWORD", "adminpass1")
+    monkeypatch.setenv("ADMIN_INIT_PASSWORD", "Admin-Initial-Passphrase-2026")
     monkeypatch.setenv("RATELIMIT_STORAGE_URI", "memory://")
     monkeypatch.setenv("TRUSTED_PROXY_HOPS", "0")
 
@@ -36,7 +36,7 @@ def test_csrf_error_handler_redirects_to_login(tmp_path, monkeypatch):
             # トークン無しで login POST → CSRFError → login へ redirect + flash
             resp = c.post(
                 "/login",
-                data={"username": "admin", "password": "adminpass1"},
+                data={"username": "admin", "password": "Admin-Initial-Passphrase-2026"},
                 follow_redirects=False,
             )
             assert resp.status_code == 302
@@ -48,7 +48,7 @@ def test_csrf_error_handler_redirects_to_login(tmp_path, monkeypatch):
         sys.modules.pop("app", None)
 
 
-def test_anonymous_admin_route_redirects_to_login(client):
+def test_anonymous_admin_page_redirects_to_login(client):
     """フェーズ1 N: 未ログインで /admin はログイン画面へ。"""
     resp = client.get("/admin", follow_redirects=False)
     assert resp.status_code == 302
@@ -62,18 +62,18 @@ def test_worker_can_not_access_admin(admin_client, app_module):
         "/manage_users",
         data={
             "action": "add", "mode": "create",
-            "username": "taro", "password": "taropass1",
+            "username": "taro", "password": "Taro-Initial-Passphrase-2026",
             "name": "太郎", "role": "worker", "color": "#e8f5e9",
         },
     )
     # taro の初回ログイン → must_change_password で誘導 → 変更 → 再ログイン
-    admin_client.get("/logout")
-    admin_client.post("/login", data={"username": "taro", "password": "taropass1"})
+    admin_client.post("/logout")
+    admin_client.post("/login", data={"username": "taro", "password": "Taro-Initial-Passphrase-2026"})
     admin_client.post(
         "/change_password",
-        data={"password_current": "taropass1", "password_new": "taropass2"},
+        data={"password_current": "Taro-Initial-Passphrase-2026", "password_new": "Taro-Changed-Passphrase-2026"},
     )
-    admin_client.post("/login", data={"username": "taro", "password": "taropass2"})
+    admin_client.post("/login", data={"username": "taro", "password": "Taro-Changed-Passphrase-2026"})
 
     resp = admin_client.get("/admin", follow_redirects=False)
     assert resp.status_code == 403
@@ -86,24 +86,24 @@ def test_deactivated_user_session_invalidated(admin_client, app_module):
         "/manage_users",
         data={
             "action": "add", "mode": "create",
-            "username": "taro", "password": "taropass1",
+            "username": "taro", "password": "Taro-Initial-Passphrase-2026",
             "name": "太郎", "role": "worker", "color": "#e8f5e9",
         },
     )
     # taro でログイン → 強制変更 → 再ログイン
-    admin_client.get("/logout")
-    admin_client.post("/login", data={"username": "taro", "password": "taropass1"})
+    admin_client.post("/logout")
+    admin_client.post("/login", data={"username": "taro", "password": "Taro-Initial-Passphrase-2026"})
     admin_client.post(
         "/change_password",
-        data={"password_current": "taropass1", "password_new": "taropass2"},
+        data={"password_current": "Taro-Initial-Passphrase-2026", "password_new": "Taro-Changed-Passphrase-2026"},
     )
-    admin_client.post("/login", data={"username": "taro", "password": "taropass2"})
+    admin_client.post("/login", data={"username": "taro", "password": "Taro-Changed-Passphrase-2026"})
     resp = admin_client.get("/menu")
     assert resp.status_code == 200
 
     # admin で taro を停止
     admin2 = admin_client.application.test_client()
-    admin2.post("/login", data={"username": "admin", "password": "adminpass2"})
+    admin2.post("/login", data={"username": "admin", "password": "Admin-Changed-Passphrase-2026"})
     admin2.post(
         "/manage_users",
         data={"action": "toggle", "username": "taro", "current_status": "1"},

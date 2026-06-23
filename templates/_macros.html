@@ -1,0 +1,18 @@
+{% macro back_link(href, label="メニューに戻る") -%}
+<a href="{{ href }}" class="btn btn-secondary btn-back">← {{ label }}</a>
+{%- endmacro %}
+
+{% macro month_switch(now_url, next_url, year, month, now_y, now_m, next_y, next_m) -%}
+<nav class="month-switch" aria-label="表示する月">
+    <a href="{{ now_url }}"
+       class="btn btn-month {% if year == now_y and month == now_m %}is-current{% endif %}"
+       {% if year == now_y and month == now_m %}aria-current="page"{% endif %}>
+        今月（{{ now_m }}月）
+    </a>
+    <a href="{{ next_url }}"
+       class="btn btn-month {% if year == next_y and month == next_m %}is-current{% endif %}"
+       {% if year == next_y and month == next_m %}aria-current="page"{% endif %}>
+        翌月（{{ next_m }}月）
+    </a>
+</nav>
+{%- endmacro %}

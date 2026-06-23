@@ -1,49 +1,69 @@
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-    <title>メニュー</title>
-</head>
-<body>
-    <div class="container" style="text-align: center; max-width: 500px; margin-top: 50px; padding: 30px;">
-        <h1>こんにちは、{{ current_user.name if current_user else '' }}さん</h1>
+{% extends "base.html" %}
 
-        {% if unsubmitted %}
-            <div class="error" style="border: 2px solid #FF0000; margin-bottom: 15px;">
-                ⚠ {{ next_m }}月分のシフトが未提出です
-            </div>
-        {% endif %}
+{% block title %}メニュー{% endblock %}
+{% block container_class %}container-menu{% endblock %}
 
-        <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
+{% block content %}
+<header class="page-header">
+    <p class="eyebrow">{{ current_user.name }}さん</p>
+    <h1>メニュー</h1>
+</header>
 
-        {% if current_user and current_user.role == 'admin' %}
-            <a href="{{ url_for('index') }}" class="menu-btn btn-entry">シフト入力 (管理者)</a>
-            <a href="{{ url_for('manage_users') }}" class="menu-btn btn-manage">ユーザー管理</a>
-            <a href="{{ url_for('admin') }}" class="menu-btn btn-confirm">全体のシフト希望を確認</a>
-            <a href="{{ url_for('submissions') }}" class="menu-btn btn-confirm">提出状況の一覧</a>
-            <a href="{{ url_for('confirm') }}" class="menu-btn btn-manage">確定シフトの作成/編集</a>
-            <a href="{{ url_for('logs') }}" class="menu-btn" style="background:var(--sub); border-bottom-color:#444;">操作ログ</a>
-        {% else %}
-            <a href="{{ url_for('worker', name=current_user.name) }}" class="menu-btn btn-entry">自分のシフト入力</a>
-        {% endif %}
+{% if unsubmitted %}
+<div class="notice notice-warning" role="status">
+    {{ next_m }}月分のシフトが未提出です。
+</div>
+{% endif %}
+{% if current_user.role == 'admin' and backup_error %}
+<div class="notice notice-error" role="alert">
+    バックアップに失敗しています。管理者向け手順を確認してください。
+</div>
+{% endif %}
+{% if current_user.role == 'admin' and disk_low %}
+<div class="notice notice-error" role="alert">
+    保存領域の空きが少なくなっています。Renderのディスク使用量を確認してください。
+</div>
+{% endif %}
 
-        {# 確定シフトの閲覧は全員（読み取り専用） #}
-        <a href="{{ url_for('confirmed') }}" class="menu-btn btn-confirm">確定シフトを見る</a>
-
-        <div style="margin-top: 30px;">
-            <a href="{{ url_for('change_password') }}" style="color:#666; font-size:0.9rem;">パスワード変更</a>
-        </div>
-
-        <div style="margin-top: 30px; display:flex; justify-content:center; gap:20px;">
-            <a href="{{ url_for('help_page') }}" style="color: #888; text-decoration: none; font-size: 0.9rem;">使い方</a>
-            <a href="{{ url_for('logout') }}" style="color: #888; text-decoration: none; font-size: 0.9rem;">ログアウト</a>
-        </div>
+{% if current_user.role == 'admin' %}
+<section class="menu-group">
+    <h2>今日使う</h2>
+    <div class="menu-grid">
+        <a href="{{ url_for('submissions') }}" class="btn btn-primary">提出状況を見る</a>
+        <a href="{{ url_for('admin') }}" class="btn btn-secondary">希望シフトを見る</a>
+        <a href="{{ url_for('index') }}" class="btn btn-secondary">自分の希望を入力</a>
     </div>
-    {# V3: tojson で JS 文字列リテラル文脈でも安全にエスケープ #}
-    {% with messages = get_flashed_messages() %}
-      {% if messages %}<script nonce="{{ csp_nonce }}">alert({{ messages[0]|tojson }});</script>{% endif %}
-    {% endwith %}
-</body>
-</html>
+</section>
+<section class="menu-group">
+    <h2>確定する</h2>
+    <div class="menu-grid">
+        <a href="{{ url_for('confirm') }}" class="btn btn-primary">確定シフトを作る</a>
+        <a href="{{ url_for('confirmed') }}" class="btn btn-secondary">確定シフトを見る</a>
+    </div>
+</section>
+<section class="menu-group">
+    <h2>管理・確認</h2>
+    <div class="menu-grid">
+        <a href="{{ url_for('manage_users') }}" class="btn btn-secondary">ユーザー管理</a>
+        <a href="{{ url_for('logs') }}" class="btn btn-secondary">操作ログ</a>
+    </div>
+</section>
+{% if backup_success %}
+<p class="system-note">最終バックアップ: {{ backup_success | jst }}</p>
+{% endif %}
+{% else %}
+<section class="menu-group menu-group-primary">
+    <a href="{{ url_for('worker') }}" class="btn btn-primary btn-large">自分のシフト希望を入力</a>
+    <a href="{{ url_for('confirmed') }}" class="btn btn-secondary btn-large">確定シフトを見る</a>
+</section>
+{% endif %}
+
+<nav class="footer-nav" aria-label="アカウント操作">
+    <a href="{{ url_for('change_password') }}">パスワード変更</a>
+    <a href="{{ url_for('help_page') }}">使い方</a>
+    <form method="post" action="{{ url_for('logout') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="link-button">ログアウト</button>
+    </form>
+</nav>
+{% endblock %}

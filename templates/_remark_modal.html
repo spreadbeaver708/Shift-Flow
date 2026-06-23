@@ -1,13 +1,18 @@
-{# 備考モーダル + 送信後 confirm の共通パーシャル（worker.html / index.html から include）。
-   呼び出し側で {% set next_url = url_for(...) %} しておくこと。
-   V12: inline onclick を撤廃し addEventListener で結線。
-   V25: worker.html / index.html の重複（modal + JS ~ 40行）をここに集約。 #}
-<div id="remarkModal" class="modal-overlay">
-    <div class="modal-content">
-        <h3 id="modalTitle"></h3>
-        <textarea id="modalTextarea" class="modal-textarea"></textarea>
-        <button type="button" id="modalSaveBtn" class="menu-btn btn-entry" style="width: 100%; border:none;">OK</button>
-    </div>
+<div id="remarkModal" class="modal-overlay" hidden>
+    <section class="modal-content" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+        <h2 id="modalTitle">備考</h2>
+        <p id="remarkHelp" class="field-help">
+            勤務時間などを500文字以内で入力します。相談内容や個人情報は書かないでください。
+        </p>
+        <label for="modalTextarea">備考</label>
+        <textarea id="modalTextarea" class="modal-textarea" maxlength="500"
+                  aria-describedby="remarkHelp remarkCount"></textarea>
+        <p id="remarkCount" class="character-count" aria-live="polite">残り500文字</p>
+        <div class="modal-actions">
+            <button type="button" id="modalSaveBtn" class="btn btn-primary">保存</button>
+            <button type="button" id="modalCancelBtn" class="btn btn-secondary">閉じる</button>
+        </div>
+    </section>
 </div>
 
 <script nonce="{{ csp_nonce }}">
@@ -15,50 +20,76 @@
         var modal = document.getElementById('remarkModal');
         var modalTitle = document.getElementById('modalTitle');
         var modalTextarea = document.getElementById('modalTextarea');
+        var count = document.getElementById('remarkCount');
         var currentDay = null;
+        var opener = null;
 
-        function openRemark(day) {
+        function updateCount() {
+            count.textContent = '残り' + (500 - modalTextarea.value.length) + '文字';
+        }
+
+        function closeRemark() {
+            modal.hidden = true;
+            document.body.classList.remove('modal-open');
+            if (opener) {
+                opener.focus();
+            }
+        }
+
+        function openRemark(day, button) {
             currentDay = day;
-            modalTitle.innerText = day + "日の備考";
+            opener = button;
+            modalTitle.textContent = day + '日の備考';
             modalTextarea.value = document.getElementById('input_remark_' + day).value;
-            modal.style.display = 'block';
+            updateCount();
+            modal.hidden = false;
+            document.body.classList.add('modal-open');
+            modalTextarea.focus();
         }
 
         function saveRemark() {
-            var val = modalTextarea.value;
+            var value = modalTextarea.value;
             var hidden = document.getElementById('input_remark_' + currentDay);
-            var btn = document.getElementById('btn_remark_' + currentDay);
-            var cell = document.getElementById('cell_' + currentDay);
-            hidden.value = val;
-            if (val.trim() !== "") {
-                btn.classList.add('active');
-                btn.innerText = "★備考あり";
-                cell.classList.add('has-remark-bg');
-            } else {
-                btn.classList.remove('active');
-                btn.innerText = "備考";
-                cell.classList.remove('has-remark-bg');
-            }
-            modal.style.display = 'none';
+            var button = document.getElementById('btn_remark_' + currentDay);
+            hidden.value = value;
+            button.classList.toggle('has-value', value.trim() !== '');
+            button.textContent = value.trim() !== '' ? '備考あり' : '備考を追加';
+            closeRemark();
         }
 
-        // V12: 備考ボタンとモーダル保存ボタンを addEventListener で結線
-        document.querySelectorAll('.btn-remark-open').forEach(function (btn) {
-            btn.addEventListener('click', function (e) {
-                openRemark(e.currentTarget.dataset.day);
+        document.querySelectorAll('.btn-remark-open').forEach(function (button) {
+            button.addEventListener('click', function (event) {
+                openRemark(event.currentTarget.dataset.day, event.currentTarget);
             });
         });
+        modalTextarea.addEventListener('input', updateCount);
         document.getElementById('modalSaveBtn').addEventListener('click', saveRemark);
-
-        // 送信後の確認ポップアップ（V5: クエリ除去で再発火防止）
-        var params = new URLSearchParams(window.location.search);
-        if (params.get('submitted') === 'true') {
-            history.replaceState(null, '', location.pathname);
-            if (confirm("送信されました。このまま翌月分も提出しますか？")) {
-                location.href = {{ next_url|tojson }};
-            } else {
-                location.href = {{ url_for('menu')|tojson }};
+        document.getElementById('modalCancelBtn').addEventListener('click', closeRemark);
+        modal.addEventListener('click', function (event) {
+            if (event.target === modal) closeRemark();
+        });
+        document.addEventListener('keydown', function (event) {
+            if (modal.hidden) return;
+            if (event.key === 'Escape') {
+                closeRemark();
+                return;
             }
-        }
+            if (event.key === 'Tab') {
+                var controls = Array.from(
+                    modal.querySelectorAll('textarea, button')
+                ).filter(function (element) {
+                    return !element.disabled;
+                });
+                var first = controls[0];
+                var last = controls[controls.length - 1];
+                if (event.shiftKey && document.activeElement === first) {
+                    event.preventDefault();
+                    last.focus();
+                } else if (!event.shiftKey && document.activeElement === last) {
+                    event.preventDefault();
+                    first.focus();
+                }
+            }
+        });
     })();
 </script>

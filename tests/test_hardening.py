@@ -6,15 +6,19 @@ import sys
 
 
 def test_password_policy_length_and_chars(app_module):
-    """8文字以上を要求し、記号・空白を許可し、長すぎる入力は拒否する。"""
+    """15文字以上を要求し、記号・空白を許可し、長すぎる入力は拒否する。"""
     f = app_module.is_valid_password
     assert f(None) is False
     assert f("abc") is False           # 短すぎ
-    assert f("1234567") is False       # 7文字
-    assert f("12345678") is True       # 8文字ちょうど
-    assert f("p@ss w0rd") is True      # 記号・空白OK（旧 .isalnum() では弾かれていた）
-    assert f("a" * 128) is True        # 上限ちょうど
+    assert f("12345678901234") is False
+    assert f("長い パスフレーズ です 2026") is True
+    assert f("p@ss phrase 2026") is True
+    assert f("a" * 128) is False       # 同じ文字だけ
+    assert f("Abc-" * 32) is False     # 短い並びの反復
+    assert f("abcdefghabcdefgh") is False
+    assert f("上限ちょうど-" + "a" * 121) is True
     assert f("a" * 129) is False       # 上限超過
+    assert f("passwordpassword") is False
 
 
 def test_csp_and_baseline_headers(client):
@@ -40,7 +44,7 @@ def test_hsts_present_in_production(tmp_path, monkeypatch):
     monkeypatch.setenv("APP_ENV", "production")
     monkeypatch.setenv("SECRET_KEY", secrets.token_hex(16))
     monkeypatch.setenv("SHIFT_DB_PATH", str(db_path))
-    monkeypatch.setenv("ADMIN_INIT_PASSWORD", "adminpass1")
+    monkeypatch.setenv("ADMIN_INIT_PASSWORD", "Admin-Initial-Passphrase-2026")
     monkeypatch.setenv("RATELIMIT_STORAGE_URI", "memory://")
     monkeypatch.setenv("TRUSTED_PROXY_HOPS", "0")
 
@@ -77,15 +81,15 @@ def test_login_unknown_user_generic_and_no_session(client):
 
 
 def test_csp_script_nonce_and_no_unsafe_inline(client):
-    """V28: script-src は nonce 方式で 'unsafe-inline' を含まない。base-uri は 'none'。
-    style-src は当面 'unsafe-inline' を維持（撤去は別タスク）。"""
+    """script/styleともinline実行を許可せず、base-uriも無効にする。"""
     resp = client.get("/login")
     csp = resp.headers.get("Content-Security-Policy", "")
     script_dir = csp.split("script-src", 1)[1].split(";", 1)[0]
     assert "'nonce-" in script_dir
     assert "'unsafe-inline'" not in script_dir
     assert "base-uri 'none'" in csp
-    assert "style-src 'self' 'unsafe-inline'" in csp
+    assert "style-src 'self'" in csp
+    assert "style-src 'self' 'unsafe-inline'" not in csp
 
 
 def test_rendered_script_tags_carry_matching_nonce(admin_client):
@@ -115,8 +119,10 @@ def test_login_page_is_no_store(client):
     static は対象外（CSS はキャッシュ可）。"""
     resp = client.get("/login")
     assert resp.headers.get("Cache-Control") == "no-store"
+    resp.close()
     static_resp = client.get("/static/style.css")
     assert static_resp.headers.get("Cache-Control") != "no-store"
+    static_resp.close()
 
 
 def test_session_idle_timeout_configured(app_module):
@@ -131,6 +137,6 @@ def test_session_idle_timeout_configured(app_module):
 
 def test_login_marks_session_permanent(client, login):
     """V28: ログイン成功でセッションが permanent（PERMANENT_SESSION_LIFETIME 適用）になる。"""
-    login("admin", "adminpass1")
+    login("admin", "Admin-Initial-Passphrase-2026")
     with client.session_transaction() as s:
         assert s.permanent is True

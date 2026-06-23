@@ -1,0 +1,57 @@
+import secrets
+import unicodedata
+
+
+PASSWORD_MIN_LEN = 15
+PASSWORD_MAX_LEN = 128
+
+# オフラインで判定し、入力されたパスワードを外部サービスへ送信しない。
+COMMON_PASSWORDS = {
+    "123456789012345",
+    "passwordpassword",
+    "password123456",
+    "qwertyuiop12345",
+    "letmeinletmein",
+    "adminadminadmin",
+    "administrator",
+    "shiftflowshift",
+    "correcthorsebatterystaple",
+    "iloveyouiloveyou",
+    "welcome123456789",
+}
+
+
+def normalize_password(password):
+    if password is None:
+        return None
+    return unicodedata.normalize("NFC", password)
+
+
+def password_error(password, username=""):
+    normalized = normalize_password(password)
+    if normalized is None or len(normalized) < PASSWORD_MIN_LEN:
+        return f"パスワードは{PASSWORD_MIN_LEN}文字以上で入力してください"
+    if len(normalized) > PASSWORD_MAX_LEN:
+        return f"パスワードは{PASSWORD_MAX_LEN}文字以内で入力してください"
+    folded = normalized.casefold()
+    if folded in COMMON_PASSWORDS:
+        return "推測されやすいパスワードは使用できません"
+    if username and folded == username.casefold():
+        return "ユーザーIDと同じパスワードは使用できません"
+    if len(set(folded)) == 1:
+        return "同じ文字だけのパスワードは使用できません"
+    for unit_length in range(1, min(8, len(folded) // 2) + 1):
+        if len(folded) % unit_length == 0:
+            unit = folded[:unit_length]
+            if unit * (len(folded) // unit_length) == folded:
+                return "同じ並びを繰り返すパスワードは使用できません"
+    return None
+
+
+def is_valid_password(password, username=""):
+    return password_error(password, username) is None
+
+
+def generate_temporary_password():
+    # token_urlsafe(18) は通常24文字。文字種ルールに依存せず十分な長さを確保する。
+    return secrets.token_urlsafe(18)

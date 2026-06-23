@@ -93,7 +93,7 @@ def test_shifts_username_backfilled_from_legacy(monkeypatch, tmp_path):
     monkeypatch.setenv("APP_ENV", "development")
     monkeypatch.setenv("SECRET_KEY", secrets.token_hex(16))
     monkeypatch.setenv("SHIFT_DB_PATH", str(dbp))
-    monkeypatch.setenv("ADMIN_INIT_PASSWORD", "adminpass1")
+    monkeypatch.setenv("ADMIN_INIT_PASSWORD", "Admin-Initial-Passphrase-2026")
     monkeypatch.setenv("RATELIMIT_STORAGE_URI", "memory://")
     monkeypatch.setenv("TRUSTED_PROXY_HOPS", "0")
     sys.modules.pop("app", None)

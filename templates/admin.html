@@ -1,54 +1,52 @@
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-    <title>全体確認</title>
-</head>
-<body>
-    <div class="container">
-        <h1>シフト確認（{{ year }}/{{ month }}）</h1>
-        <a href="{{ url_for('menu') }}" class="btn-back">← メニューに戻る</a>
+{% extends "base.html" %}
+{% from "_macros.html" import back_link, month_switch %}
 
-        <div style="display: flex; gap: 8px; margin-bottom: 20px; justify-content: center;">
-            <a href="{{ url_for('admin', year=now_y, month=now_m) }}" class="btn-month {% if year==now_y and month==now_m %}active-month{% endif %}" style="background: var(--entry); border-bottom-color: #388E3C;">今月 ({{ now_m }}月)</a>
-            <a href="{{ url_for('admin', year=next_y, month=next_m) }}" class="btn-month {% if year==next_y and month==next_m %}active-month{% endif %}" style="background: var(--confirm); border-bottom-color: #E68A00;">翌月 ({{ next_m }}月)</a>
-        </div>
+{% block title %}希望シフトを見る{% endblock %}
 
-        <table class="calendar-table">
-            <tr><th>日</th><th>月</th><th>火</th><th>水</th><th>木</th><th>金</th><th>土</th></tr>
-            {% for week in cal %}
-            <tr>
-                {% for day in week %}
-                <td>
-                    {% if day != 0 %}
-                        <b style="display:block; border-bottom:1px solid #f0f0f0; margin-bottom:3px;">{{ day }}</b>
-                        {% for row in rows %}
-                            {% if row[0] == day and row[2] == '〇' %}
-                                <div class="shift-tag shift-tag-remark"
-                                     style="background:{{ row[3] }}; cursor:pointer;"
-                                     data-name="{{ row[1] }}"
-                                     data-remark="{{ row[4] }}">
-                                    {% if row[4] %}☆{% endif %}{{ row[1] }}
-                                </div>
-                            {% endif %}
-                        {% endfor %}
+{% block content %}
+<header class="page-header">
+    <h1>希望シフトを見る</h1>
+    <p>{{ year }}年{{ month }}月・出勤可能な人を表示します。</p>
+</header>
+{{ back_link(url_for('menu')) }}
+{{ month_switch(
+    url_for('admin', year=now_y, month=now_m),
+    url_for('admin', year=next_y, month=next_m),
+    year, month, now_y, now_m, next_y, next_m
+) }}
+
+<div class="table-scroll">
+<table class="calendar-table">
+    <thead><tr><th>日</th><th>月</th><th>火</th><th>水</th><th>木</th><th>金</th><th>土</th></tr></thead>
+    <tbody>
+    {% for week in cal %}
+    <tr>
+        {% for day in week %}
+        <td>
+            {% if day %}
+                <strong class="calendar-day">{{ day }}</strong>
+                {% for row in rows %}
+                    {% if row[0] == day and row[2] == '〇' %}
+                    <div class="shift-tag">
+                        <input class="color-swatch" type="color" value="{{ row[3] }}"
+                               disabled aria-label="{{ row[1] }}さんの表示色">
+                        {% if row[4] %}
+                        <details>
+                            <summary>※ {{ row[1] }}</summary>
+                            <p>{{ row[4] }}</p>
+                        </details>
+                        {% else %}
+                        {{ row[1] }}
+                        {% endif %}
+                    </div>
                     {% endif %}
-                </td>
                 {% endfor %}
-            </tr>
-            {% endfor %}
-        </table>
-    </div>
-    <script nonce="{{ csp_nonce }}">
-    // E: onclick への値埋め込みを廃止し、dataset 経由で安全に取り出す
-    document.querySelectorAll('.shift-tag-remark').forEach(function(el) {
-        el.addEventListener('click', function(e) {
-            var d = e.currentTarget.dataset;
-            alert('【' + d.name + 'さんの備考】\n' + d.remark);
-        });
-    });
-    </script>
-</body>
-</html>
+            {% endif %}
+        </td>
+        {% endfor %}
+    </tr>
+    {% endfor %}
+    </tbody>
+</table>
+</div>
+{% endblock %}

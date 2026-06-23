@@ -20,7 +20,7 @@ def test_add_new_user_sets_must_change_password(admin_client, app_module):
             "action": "add",
             "mode": "create",
             "username": "taro",
-            "password": "taropass1",
+            "password": "Taro-Initial-Passphrase-2026",
             "name": "太郎",
             "role": "worker",
             "color": "#e8f5e9",
@@ -43,7 +43,7 @@ def test_edit_mode_ignores_form_username(admin_client, app_module):
         "/manage_users",
         data={
             "action": "add", "mode": "create",
-            "username": "taro", "password": "taropass1",
+            "username": "taro", "password": "Taro-Initial-Passphrase-2026",
             "name": "太郎", "role": "worker", "color": "#e8f5e9",
         },
     )
@@ -89,7 +89,7 @@ def test_create_mode_duplicate_rejected(admin_client, app_module):
         "/manage_users",
         data={
             "action": "add", "mode": "create",
-            "username": "taro", "password": "taropass1",
+            "username": "taro", "password": "Taro-Initial-Passphrase-2026",
             "name": "太郎", "role": "worker", "color": "#e8f5e9",
         },
     )
@@ -114,7 +114,7 @@ def test_delete_action_is_rejected(admin_client, app_module):
         "/manage_users",
         data={
             "action": "add", "mode": "create",
-            "username": "taro", "password": "taropass1",
+            "username": "taro", "password": "Taro-Initial-Passphrase-2026",
             "name": "太郎", "role": "worker", "color": "#e8f5e9",
         },
     )
@@ -135,7 +135,7 @@ def test_delete_button_not_in_html(admin_client):
         "/manage_users",
         data={
             "action": "add", "mode": "create",
-            "username": "taro", "password": "taropass1",
+            "username": "taro", "password": "Taro-Initial-Passphrase-2026",
             "name": "太郎", "role": "worker", "color": "#e8f5e9",
         },
     )
@@ -166,7 +166,7 @@ def test_duplicate_display_name_rejected(admin_client, app_module):
         "/manage_users",
         data={
             "action": "add", "mode": "create",
-            "username": "taro", "password": "taropass1",
+            "username": "taro", "password": "Taro-Initial-Passphrase-2026",
             "name": "山田", "role": "worker", "color": "#e8f5e9",
         },
     )
@@ -187,7 +187,7 @@ def test_forbidden_chars_in_name_rejected(admin_client, app_module):
         "/manage_users",
         data={
             "action": "add", "mode": "create",
-            "username": "taro", "password": "taropass1",
+            "username": "taro", "password": "Taro-Initial-Passphrase-2026",
             "name": "../etc/passwd", "role": "worker", "color": "#e8f5e9",
         },
     )
@@ -200,7 +200,7 @@ def test_toggle_user_active_state(admin_client, app_module):
         "/manage_users",
         data={
             "action": "add", "mode": "create",
-            "username": "taro", "password": "taropass1",
+            "username": "taro", "password": "Taro-Initial-Passphrase-2026",
             "name": "太郎", "role": "worker", "color": "#e8f5e9",
         },
     )
@@ -216,3 +216,26 @@ def test_toggle_user_active_state(admin_client, app_module):
         data={"action": "toggle", "username": "taro", "current_status": "0"},
     )
     assert _read_user(app_module, "taro")[3] == 1
+
+
+def test_toggle_uses_database_state_not_stale_hidden_value(
+    admin_client, app_module
+):
+    admin_client.post(
+        "/manage_users",
+        data={
+            "action": "add", "mode": "create",
+            "username": "taro",
+            "password": "Taro-Initial-Passphrase-2026",
+            "name": "太郎", "role": "worker", "color": "#e8f5e9",
+        },
+    )
+    admin_client.post(
+        "/manage_users",
+        data={
+            "action": "toggle",
+            "username": "taro",
+            "current_status": "0",
+        },
+    )
+    assert _read_user(app_module, "taro")[3] == 0

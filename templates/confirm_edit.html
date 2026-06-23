@@ -1,65 +1,60 @@
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-    <title>確定シフトの編集</title>
-</head>
-<body>
-<div class="container">
-    <h1>{{ name }} の確定シフト（{{ year }}/{{ month }}）</h1>
-    <a href="{{ url_for('confirm', year=year, month=month) }}" class="btn-back">← 一覧に戻る</a>
+{% extends "base.html" %}
+{% from "_macros.html" import back_link, month_switch %}
 
-    {% with msgs = get_flashed_messages() %}
-      {% if msgs %}<p style="color:green; text-align:center; font-weight:bold;">{{ msgs[0] }}</p>{% endif %}
-    {% endwith %}
+{% block title %}{{ name }}さんの確定シフト{% endblock %}
 
-    <div style="display: flex; gap: 8px; margin-bottom: 20px; justify-content: center;">
-        <a href="{{ url_for('confirm_user', username=target_username, year=now_y, month=now_m) }}"
-           class="btn-month {% if year==now_y and month==now_m %}active-month{% endif %}"
-           style="background: var(--entry); border-bottom-color: #388E3C;">今月 ({{ now_m }}月)</a>
-        <a href="{{ url_for('confirm_user', username=target_username, year=next_y, month=next_m) }}"
-           class="btn-month {% if year==next_y and month==next_m %}active-month{% endif %}"
-           style="background: var(--confirm); border-bottom-color: #E68A00;">翌月 ({{ next_m }}月)</a>
-    </div>
+{% block content %}
+<header class="page-header">
+    <p class="eyebrow">{{ name }}さん</p>
+    <h1>確定シフトを編集</h1>
+    <p>本人の希望を確認して、出勤日を決めます。</p>
+</header>
+{{ back_link(url_for('confirm', year=year, month=month), "職員一覧に戻る") }}
+{{ month_switch(
+    url_for('confirm_user', username=target_username, year=now_y, month=now_m),
+    url_for('confirm_user', username=target_username, year=next_y, month=next_m),
+    year, month, now_y, now_m, next_y, next_m
+) }}
 
-    <p style="color:#888; font-size:0.82rem;">〇＝出勤、×＝休み（初期値は×）。各日の「希望」は本人が出した希望です。</p>
-
-    <form method="post">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <table class="calendar-table">
-            <tr><th>日</th><th>月</th><th>火</th><th>水</th><th>木</th><th>金</th><th>土</th></tr>
-            {% for week in cal %}
-            <tr>
-                {% for day in week %}
-                {% set i = loop.index0 %}
-                {% set s = shifts.get(day, {'status':'×'}) %}
+<form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="shift-calendar">
+        <div class="weekday-row" aria-hidden="true">
+            {% for weekday in weekday_names %}<span>{{ weekday }}</span>{% endfor %}
+        </div>
+        <div class="day-grid">
+        {% for week in cal %}
+            {% for day in week %}
+                {% set weekday_index = loop.index0 %}
+                {% set is_open_day = weekday_index in [0, 1, 4] %}
+                {% set shift = shifts.get(day, {'status':'×'}) %}
                 {% set hint = request_hint.get(day) %}
-                <td>
-                    {% if day != 0 %}
-                        <div style="font-size:0.75rem; color:#999; padding:2px; border-bottom:1px solid #f9f9f9; margin-bottom:5px;">{{ day }}</div>
-                        {% if i in [0, 1, 4] %}
-                            <div style="display: inline-block;">
-                                <input type="radio" id="ok_{{day}}" name="day_{{day}}" value="〇" {% if s.status == '〇' %}checked{% endif %}>
-                                <label for="ok_{{day}}" class="radio-label">〇</label>
-                                <input type="radio" id="ng_{{day}}" name="day_{{day}}" value="×" {% if s.status != '〇' %}checked{% endif %}>
-                                <label for="ng_{{day}}" class="radio-label">×</label>
-                            </div>
-                            <div style="font-size:0.7rem; margin-top:4px;">
-                                {% if hint == '〇' %}<span style="color:#388E3C;">希望:〇</span>
-                                {% elif hint == '×' %}<span style="color:#bbb;">希望:×</span>
-                                {% else %}<span style="color:#ddd;">希望:—</span>{% endif %}
-                            </div>
-                        {% else %}<div style="color:#eee; margin-top:25px;">-</div>{% endif %}
-                    {% endif %}
-                </td>
-                {% endfor %}
-            </tr>
+                <section class="day-card {% if day == 0 %}is-empty{% elif not is_open_day %}is-closed{% else %}is-open{% endif %}">
+                {% if day %}
+                    <fieldset {% if not is_open_day %}disabled{% endif %}>
+                        <legend>{{ day }}日 <span class="weekday-mobile">（{{ weekday_names[weekday_index] }}）</span></legend>
+                        {% if is_open_day %}
+                        <div class="choice-row">
+                            <input class="visually-hidden choice-input" type="radio"
+                                   id="ok_{{ day }}" name="day_{{ day }}" value="〇"
+                                   {% if shift.status == '〇' %}checked{% endif %}>
+                            <label class="choice-label" for="ok_{{ day }}">〇 出勤</label>
+                            <input class="visually-hidden choice-input" type="radio"
+                                   id="ng_{{ day }}" name="day_{{ day }}" value="×"
+                                   {% if shift.status != '〇' %}checked{% endif %}>
+                            <label class="choice-label" for="ng_{{ day }}">× 休み</label>
+                        </div>
+                        <p class="request-hint">本人の希望：{{ hint or '未提出' }}</p>
+                        {% else %}
+                        <span class="closed-label">入力なし</span>
+                        {% endif %}
+                    </fieldset>
+                {% endif %}
+                </section>
             {% endfor %}
-        </table>
-        <button type="submit" class="btn-save-colored">この内容で確定する</button>
-    </form>
-</div>
-</body>
-</html>
+        {% endfor %}
+        </div>
+    </div>
+    <button type="submit" class="btn btn-primary btn-save">この内容で確定</button>
+</form>
+{% endblock %}
