@@ -1,36 +1,63 @@
 {% extends "base.html" %}
 {% from "_macros.html" import back_link, month_switch %}
 
-{% block title %}シフト希望を入力{% endblock %}
+{% block title %}{% if editor_is_admin %}希望を編集{% else %}シフト希望を入力{% endif %}{% endblock %}
 
 {% block content %}
-{% set next_url = url_for(input_endpoint, year=next_y, month=next_m) %}
 <header class="page-header">
+    {% if editor_is_admin %}
+    <p class="eyebrow">管理者編集</p>
+    <h1>{{ name }}さんの希望</h1>
+    <p>出られる日は「〇」、休みは「×」です。</p>
+    {% else %}
     <p class="eyebrow">{{ name }}さん</p>
     <h1>シフト希望を入力</h1>
     <p>出られる日は「〇」、休みは「×」を選びます。</p>
+    {% endif %}
 </header>
 
+{% if editor_is_admin %}
+{{ back_link(url_for('submissions', year=year, month=month), '希望管理に戻る') }}
+{% else %}
 {{ back_link(url_for('menu')) }}
-{{ month_switch(
-    url_for(input_endpoint, year=now_y, month=now_m),
-    next_url,
-    year, month, now_y, now_m, next_y, next_m
-) }}
+{% endif %}
+{{ month_switch(nav_now_url, nav_next_url, year, month, now_y, now_m, next_y, next_m) }}
+
+{% if read_only %}
+<div class="notice notice-warning" role="status">
+    <strong>{{ deadline_label }}で締め切りました。</strong>
+    変更できません。直したいときは管理者に伝えてください。
+</div>
+{% elif editor_is_admin and deadline_label %}
+<div class="notice" role="status">
+    スタッフの締め切りは <strong>{{ deadline_label }}</strong> です。管理者はいつでも変更できます。
+</div>
+{% elif deadline_label %}
+<div class="notice" role="status">
+    締め切りは <strong>{{ deadline_label }}</strong> です。この日になると変更できません。
+</div>
+{% endif %}
 
 {% if request.args.get('submitted') == 'true' %}
 <section class="notice notice-success completion" role="status">
     <strong>保存しました。</strong>
     <div class="completion-actions">
-        <a class="btn btn-primary" href="{{ next_url }}">翌月も入力する</a>
+        {% if editor_is_admin %}
+        <a class="btn btn-primary" href="{{ url_for('submissions', year=year, month=month) }}">希望管理に戻る（次の人を選ぶ）</a>
         <a class="btn btn-secondary" href="{{ url_for('menu') }}">メニューへ戻る</a>
+        {% else %}
+        <a class="btn btn-primary" href="{{ nav_next_url }}">翌月も入力する</a>
+        <a class="btn btn-secondary" href="{{ url_for('menu') }}">メニューへ戻る</a>
+        {% endif %}
     </div>
 </section>
 {% endif %}
 
-<form method="post">
+{% if not read_only %}<form method="post">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <div class="shift-calendar" aria-label="{{ year }}年{{ month }}月のシフト希望">
+    <input type="hidden" name="year" value="{{ year }}">
+    <input type="hidden" name="month" value="{{ month }}">{% endif %}
+    <div class="shift-calendar" aria-label="{{ year }}年{{ month }}月のシフト希望{% if read_only %}（締め切り済み）{% endif %}">
         <div class="weekday-row" aria-hidden="true">
             {% for weekday in weekday_names %}<span>{{ weekday }}</span>{% endfor %}
         </div>
@@ -39,10 +66,10 @@
                 {% for day in week %}
                     {% set weekday_index = loop.index0 %}
                     {% set is_open_day = weekday_index in [0, 1, 4] %}
-                    {% set shift = shifts.get(day, {'status':'〇', 'remark':''}) %}
+                    {% set shift = shifts.get(day, {'status':'×', 'remark':''}) %}
                     <section class="day-card {% if day == 0 %}is-empty{% elif not is_open_day %}is-closed{% else %}is-open{% endif %}">
                         {% if day != 0 %}
-                            <fieldset {% if not is_open_day %}disabled{% endif %}>
+                            <fieldset {% if read_only or not is_open_day %}disabled{% endif %}>
                                 <legend>
                                     <span class="day-number">{{ day }}日</span>
                                     <span class="weekday-mobile">（{{ weekday_names[weekday_index] }}）</span>
@@ -58,12 +85,16 @@
                                                {% if shift.status == '×' %}checked{% endif %}>
                                         <label class="choice-label" for="ng_{{ day }}">× 休み</label>
                                     </div>
-                                    <button type="button" id="btn_remark_{{ day }}" data-day="{{ day }}"
-                                            class="btn btn-remark-open {% if shift.remark %}has-value{% endif %}">
-                                        {{ '備考あり' if shift.remark else '備考を追加' }}
-                                    </button>
-                                    <input type="hidden" name="remark_{{ day }}" id="input_remark_{{ day }}"
-                                           value="{{ shift.remark }}">
+                                    {% if read_only %}
+                                        {% if shift.remark %}<p class="readonly-remark">※ {{ shift.remark }}</p>{% endif %}
+                                    {% else %}
+                                        <button type="button" id="btn_remark_{{ day }}" data-day="{{ day }}"
+                                                class="btn btn-remark-open {% if shift.remark %}has-value{% endif %}">
+                                            {{ '備考あり' if shift.remark else '備考を追加' }}
+                                        </button>
+                                        <input type="hidden" name="remark_{{ day }}" id="input_remark_{{ day }}"
+                                               value="{{ shift.remark }}">
+                                    {% endif %}
                                 {% else %}
                                     <span class="closed-label">入力なし</span>
                                 {% endif %}
@@ -74,7 +105,9 @@
             {% endfor %}
         </div>
     </div>
+{% if not read_only %}
     <button type="submit" class="btn btn-primary btn-save">この内容で保存</button>
 </form>
 {% include "_remark_modal.html" %}
+{% endif %}
 {% endblock %}

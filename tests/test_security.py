@@ -66,7 +66,7 @@ def test_worker_can_not_access_admin(admin_client, app_module):
             "name": "太郎", "role": "worker", "color": "#e8f5e9",
         },
     )
-    # taro の初回ログイン → must_change_password で誘導 → 変更 → 再ログイン
+    # taro でログイン → 任意でパスワード変更 → 再ログイン（強制変更は廃止済み）
     admin_client.post("/logout")
     admin_client.post("/login", data={"username": "taro", "password": "Taro-Initial-Passphrase-2026"})
     admin_client.post(
@@ -90,7 +90,7 @@ def test_deactivated_user_session_invalidated(admin_client, app_module):
             "name": "太郎", "role": "worker", "color": "#e8f5e9",
         },
     )
-    # taro でログイン → 強制変更 → 再ログイン
+    # taro でログイン → 任意でパスワード変更 → 再ログイン（強制変更は廃止済み）
     admin_client.post("/logout")
     admin_client.post("/login", data={"username": "taro", "password": "Taro-Initial-Passphrase-2026"})
     admin_client.post(

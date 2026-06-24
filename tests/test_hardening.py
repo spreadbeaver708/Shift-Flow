@@ -6,19 +6,20 @@ import sys
 
 
 def test_password_policy_length_and_chars(app_module):
-    """15文字以上を要求し、記号・空白を許可し、長すぎる入力は拒否する。"""
+    """最低8文字を要求し、記号・空白を許可し、単純すぎる/長すぎる入力は拒否する。"""
     f = app_module.is_valid_password
     assert f(None) is False
-    assert f("abc") is False           # 短すぎ
-    assert f("12345678901234") is False
-    assert f("長い パスフレーズ です 2026") is True
-    assert f("p@ss phrase 2026") is True
-    assert f("a" * 128) is False       # 同じ文字だけ
-    assert f("Abc-" * 32) is False     # 短い並びの反復
-    assert f("abcdefghabcdefgh") is False
-    assert f("上限ちょうど-" + "a" * 121) is True
-    assert f("a" * 129) is False       # 上限超過
-    assert f("passwordpassword") is False
+    assert f("abc") is False               # 短すぎ
+    assert f("1234567") is False           # 7文字
+    assert f("password") is False          # 頻出の弱いPW
+    assert f("12345678") is False          # 頻出の弱いPW
+    assert f("aaaaaaaa") is False          # 同じ文字だけ
+    assert f("abcdabcd") is False          # 短い並びの反復
+    assert f("admin123", "admin123") is False  # ID と同じ
+    assert f("a" * 129) is False           # 上限超過
+    assert f("Sunny-Garden-7") is True     # 通常の8文字以上
+    assert f("p@ss w0rd!") is True         # 記号・空白OK
+    assert f("長いパスフレーズ") is True    # 日本語8文字
 
 
 def test_csp_and_baseline_headers(client):

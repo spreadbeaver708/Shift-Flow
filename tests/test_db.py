@@ -20,13 +20,13 @@ def test_must_change_password_column_present(app_module):
     assert "must_change_password" in cols
 
 
-def test_initial_admin_marked_must_change_password(app_module):
-    """V23: 初期 admin は must_change_password=1。"""
+def test_initial_admin_not_forced_to_change_password(app_module):
+    """強制変更は廃止。初期 admin の must_change_password は 0。"""
     with closing(app_module.get_db()) as conn:
         row = conn.execute(
             "SELECT must_change_password FROM users WHERE username='admin'"
         ).fetchone()
-    assert row[0] == 1
+    assert row[0] == 0
 
 
 def test_init_db_idempotent(app_module):
@@ -38,8 +38,8 @@ def test_init_db_idempotent(app_module):
     assert "must_change_password" in cols
 
 
-def test_v28_tables_and_columns_present(app_module):
-    """V28: audit_log / confirmed_shifts テーブルと shifts.username 列が作られる。"""
+def test_core_tables_and_columns_present(app_module):
+    """audit_log / deadlines テーブルと shifts.username 列が作られる。"""
     with closing(app_module.get_db()) as conn:
         names = {
             r[0]
@@ -48,21 +48,16 @@ def test_v28_tables_and_columns_present(app_module):
             ).fetchall()
         }
         scols = [r[1] for r in conn.execute("PRAGMA table_info(shifts)").fetchall()]
-        ccols = [r[1] for r in conn.execute("PRAGMA table_info(confirmed_shifts)").fetchall()]
     assert "audit_log" in names
-    assert "confirmed_shifts" in names
+    assert "deadlines" in names
     assert "username" in scols
-    assert "username" in ccols and "status" in ccols
 
 
-def test_confirmed_shifts_has_fk_to_users(app_module):
-    """V28: confirmed_shifts は users への FK（ON DELETE CASCADE）を持つ。"""
+def test_deadlines_table_schema(app_module):
+    """締め切りテーブルは (year, month) を主キーに deadline を保持する。"""
     with closing(app_module.get_db()) as conn:
-        fks = conn.execute("PRAGMA foreign_key_list(confirmed_shifts)").fetchall()
-    assert fks, "confirmed_shifts に FK が無い"
-    # (id, seq, table, from, to, on_update, on_delete, match)
-    assert fks[0][2] == "users"
-    assert fks[0][6] == "CASCADE"
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(deadlines)").fetchall()]
+    assert {"year", "month", "deadline"} <= set(cols)
 
 
 def test_shifts_username_backfilled_from_legacy(monkeypatch, tmp_path):

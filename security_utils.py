@@ -2,22 +2,28 @@ import secrets
 import unicodedata
 
 
-PASSWORD_MIN_LEN = 15
+PASSWORD_MIN_LEN = 8
 PASSWORD_MAX_LEN = 128
 
 # オフラインで判定し、入力されたパスワードを外部サービスへ送信しない。
+# 8文字運用に合わせ、頻出の弱いパスワードだけを最小限ブロックする。
 COMMON_PASSWORDS = {
-    "123456789012345",
-    "passwordpassword",
-    "password123456",
-    "qwertyuiop12345",
-    "letmeinletmein",
-    "adminadminadmin",
+    "password",
+    "password1",
+    "passw0rd",
+    "12345678",
+    "123456789",
+    "1234567890",
+    "qwertyui",
+    "qwerty123",
+    "00000000",
+    "11111111",
+    "iloveyou",
+    "welcome1",
+    "letmein1",
+    "shiftflow",
+    "adminadmin",
     "administrator",
-    "shiftflowshift",
-    "correcthorsebatterystaple",
-    "iloveyouiloveyou",
-    "welcome123456789",
 }
 
 

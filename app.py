@@ -145,6 +145,63 @@ def safe_ym(default_y, default_m):
     return y, m
 
 
+def resolve_ym(default_y, default_m):
+    """保存先となる年月を一意に決める（GET=クエリ / POST=隠しフィールド+クエリ）。
+    呼び出し側はこの 1 回の結果をロック判定と保存の両方に使い、月のズレを防ぐ。"""
+    # request.values は args+form を統合。POST の保存対象月を確実に拾う。
+    y = request.values.get("year", default_y, type=int)
+    m = request.values.get("month", default_m, type=int)
+    if not isinstance(m, int) or not (1 <= m <= 12):
+        m = default_m
+    if not isinstance(y, int) or not (2000 <= y <= 2100):
+        y = default_y
+    return y, m
+
+
+# =====================
+# 締め切り（年月ごとに管理者が設定。この日からスタッフは変更不可）
+# =====================
+def get_deadline(conn, year, month):
+    row = conn.execute(
+        "SELECT deadline FROM deadlines WHERE year=? AND month=?",
+        (year, month),
+    ).fetchone()
+    return row[0] if row and row[0] else None
+
+
+def set_deadline(conn, year, month, date_str):
+    if date_str:
+        conn.execute(
+            "INSERT INTO deadlines (year, month, deadline) VALUES (?,?,?) "
+            "ON CONFLICT(year, month) DO UPDATE SET deadline=excluded.deadline",
+            (year, month, date_str),
+        )
+    else:
+        conn.execute(
+            "DELETE FROM deadlines WHERE year=? AND month=?", (year, month)
+        )
+
+
+def parse_deadline(date_str):
+    if not date_str:
+        return None
+    try:
+        return datetime.strptime(date_str, "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        return None
+
+
+def deadline_label(date_str):
+    d = parse_deadline(date_str)
+    return f"{d.month}月{d.day}日" if d else ""
+
+
+def is_locked_for_staff(date_str):
+    """締め切り日当日0:00(JST)以降はスタッフ編集をロックする。"""
+    d = parse_deadline(date_str)
+    return d is not None and now_jst().date() >= d
+
+
 # =====================
 # Q: 各リクエストで DB からユーザー状態を再取得
 # =====================
@@ -177,7 +234,7 @@ def load_current_user():
         session["authenticated_at"] = now_utc().isoformat(timespec="seconds")
     with closing(get_db()) as conn:
         row = conn.execute(
-            "SELECT username, role, name, is_active, must_change_password "
+            "SELECT username, role, name, is_active "
             "FROM users WHERE username=?",
             (u,),
         ).fetchone()
@@ -185,24 +242,7 @@ def load_current_user():
         # 削除または停止済み → 旧セッションを破棄
         session.clear()
         return
-    g.user = SimpleNamespace(
-        username=row[0], role=row[1], name=row[2],
-        must_change_password=bool(row[4]),
-    )
-
-
-# 初回ログインや管理者リセット後は、パスワード変更まで他画面に進めない
-ALLOWED_WHEN_MUST_CHANGE = {"change_password", "logout", "static", "help_page"}
-
-
-@app.before_request
-def force_password_change():
-    if (
-        g.user
-        and g.user.must_change_password
-        and request.endpoint not in ALLOWED_WHEN_MUST_CHANGE
-    ):
-        return redirect(url_for("change_password"))
+    g.user = SimpleNamespace(username=row[0], role=row[1], name=row[2])
 
 
 @app.context_processor
@@ -464,26 +504,31 @@ def handle_input(
     template,
     target_username,
     target_name,
-    confirmed=False,
-    input_endpoint=None,
+    *,
+    year,
+    month,
+    redirect_endpoint,
+    redirect_kwargs=None,
+    read_only=False,
+    editor_is_admin=False,
+    deadline=None,
+    log_action_name="request_submit",
 ):
-    now = now_jst()
-    year, month = safe_ym(now.year, now.month)
-    cal = calendar.monthcalendar(year, month)
+    """シフト希望（shifts）の入力・編集の共通処理。
 
-    if request.method == "POST":
+    year/month は呼び出し側が resolve_ym で確定して渡す（ロック判定と保存先を一致させる）。
+    read_only=True のときは保存せず読み取り専用で描画する。
+    """
+    cal = calendar.monthcalendar(year, month)
+    redirect_kwargs = redirect_kwargs or {}
+
+    if request.method == "POST" and not read_only:
         ok_count = 0
         with closing(get_db()) as conn, conn:
-            if confirmed:
-                conn.execute(
-                    "DELETE FROM confirmed_shifts WHERE year=? AND month=? AND username=?",
-                    (year, month, target_username),
-                )
-            else:
-                conn.execute(
-                    "DELETE FROM shifts WHERE year=? AND month=? AND username=?",
-                    (year, month, target_username),
-                )
+            conn.execute(
+                "DELETE FROM shifts WHERE year=? AND month=? AND username=?",
+                (year, month, target_username),
+            )
             for week in cal:
                 for i, day in enumerate(week):
                     if day != 0 and i in [0, 1, 4]:  # 日・月・木
@@ -492,119 +537,108 @@ def handle_input(
                             status = "×"
                         if status == "〇":
                             ok_count += 1
-                        if confirmed:
-                            conn.execute(
-                                "INSERT INTO confirmed_shifts (year, month, day, username, status) "
-                                "VALUES (?,?,?,?,?)",
-                                (year, month, day, target_username, status),
-                            )
-                        else:
-                            remark = (request.form.get(f"remark_{day}", "") or "")[:REMARK_MAX_LEN]
-                            conn.execute(
-                                "INSERT INTO shifts (year, month, day, username, name, status, remarks) "
-                                "VALUES (?,?,?,?,?,?,?)",
-                                (year, month, day, target_username, target_name, status, remark),
-                            )
-            # 監査ログ。備考(remark)本文は記録せず、年月と〇件数のメタのみ。
-            # detail には安定ID(username)を必ず含める（表示名変更後も「誰の分か」を追跡可能に）。
-            # target は年月のまま（/submissions の最終提出時刻クエリが target=YYYY-MM を使うため）。
+                        remark = (request.form.get(f"remark_{day}", "") or "")[:REMARK_MAX_LEN]
+                        conn.execute(
+                            "INSERT INTO shifts (year, month, day, username, name, status, remarks) "
+                            "VALUES (?,?,?,?,?,?,?)",
+                            (year, month, day, target_username, target_name, status, remark),
+                        )
+            # 監査ログ。備考(remark)本文は記録せず、年月・対象者・〇件数のメタのみ。
+            # target は "YYYY-MM:対象username" 形式（代理編集も含め誰の分かを正確に集計できる）。
+            actor = g.user.username if getattr(g, "user", None) else target_username
             log_action(
-                conn, "confirm_save" if confirmed else "request_submit",
-                target=f"{year}-{month:02d}",
-                detail={"username": target_username, "name": target_name, "ok": ok_count},
+                conn, log_action_name,
+                target=f"{year}-{month:02d}:{target_username}",
+                detail={"name": target_name, "ok": ok_count, "by": actor},
             )
-        if confirmed:
-            flash("確定シフトを保存しました")
-            return redirect(url_for("confirm_user", username=target_username,
-                                    year=year, month=month))
         return redirect(
-            url_for(
-                input_endpoint or "worker",
-                year=year,
-                month=month,
-                submitted="true",
-            )
+            url_for(redirect_endpoint, **redirect_kwargs,
+                    year=year, month=month, submitted="true")
         )
 
     with closing(get_db()) as conn:
-        if confirmed:
-            existing = {
-                row[0]: {"status": row[1], "remark": ""}
-                for row in conn.execute(
-                    "SELECT day, status FROM confirmed_shifts WHERE year=? AND month=? AND username=?",
-                    (year, month, target_username),
-                ).fetchall()
-            }
-            # 下敷きヒント: 当人の希望（〇/×）
-            request_hint = {
-                row[0]: row[1]
-                for row in conn.execute(
-                    "SELECT day, status FROM shifts WHERE year=? AND month=? AND username=?",
-                    (year, month, target_username),
-                ).fetchall()
-            }
-        else:
-            existing = {
-                row[0]: {"status": row[1], "remark": row[2]}
-                for row in conn.execute(
-                    "SELECT day, status, remarks FROM shifts WHERE year=? AND month=? AND username=?",
-                    (year, month, target_username),
-                ).fetchall()
-            }
-            request_hint = {}
+        existing = {
+            row[0]: {"status": row[1], "remark": row[2]}
+            for row in conn.execute(
+                "SELECT day, status, remarks FROM shifts WHERE year=? AND month=? AND username=?",
+                (year, month, target_username),
+            ).fetchall()
+        }
+    links = get_month_links()
+    nav_now_url = url_for(redirect_endpoint, **redirect_kwargs,
+                          year=links["now_y"], month=links["now_m"])
+    nav_next_url = url_for(redirect_endpoint, **redirect_kwargs,
+                           year=links["next_y"], month=links["next_m"])
     return render_template(
         template, name=target_name, year=year, month=month, cal=cal, shifts=existing,
-        request_hint=request_hint, target_username=target_username,
-        input_endpoint=input_endpoint, weekday_names=("日", "月", "火", "水", "木", "金", "土"),
-        **get_month_links()
+        read_only=read_only, editor_is_admin=editor_is_admin,
+        deadline_label=deadline_label(deadline),
+        target_username=target_username,
+        nav_now_url=nav_now_url, nav_next_url=nav_next_url,
+        weekday_names=("日", "月", "火", "水", "木", "金", "土"),
+        **links,
     )
 
 
 @app.route("/", methods=["GET", "POST"])
 def index():
+    # 管理者自身の希望入力。管理者は締め切り後も編集できる（ロック対象外）。
     guard = deny_if_not_admin()
     if guard:
         return guard
+    now = now_jst()
+    year, month = resolve_ym(now.year, now.month)
+    with closing(get_db()) as conn:
+        deadline = get_deadline(conn, year, month)
     return handle_input(
-        "shift_form.html",
-        g.user.username,
-        g.user.name,
-        input_endpoint="index",
+        "shift_form.html", g.user.username, g.user.name,
+        year=year, month=month, redirect_endpoint="index", deadline=deadline,
     )
 
 
 @app.route("/worker", methods=["GET", "POST"])
 def worker():
+    # スタッフ本人の希望入力。締め切り日以降は読み取り専用。
     if not require_login():
         return redirect(url_for("login"))
+    now = now_jst()
+    year, month = resolve_ym(now.year, now.month)
+    with closing(get_db()) as conn:
+        deadline = get_deadline(conn, year, month)
+    locked = is_locked_for_staff(deadline)
+    if request.method == "POST" and locked:
+        flash("締め切り済みのため変更できません。")
+        return redirect(url_for("worker", year=year, month=month))
     return handle_input(
-        "shift_form.html",
-        g.user.username,
-        g.user.name,
-        input_endpoint="worker",
+        "shift_form.html", g.user.username, g.user.name,
+        year=year, month=month, redirect_endpoint="worker",
+        read_only=locked, deadline=deadline,
     )
 
 
-@app.route("/worker/<name>", methods=["GET", "POST"])
-def worker_legacy(name):
-    if not require_login():
-        return redirect(url_for("login"))
-    if g.user.name != name:
-        flash("自分のシフト入力画面以外にはアクセスできません")
-        return redirect(url_for("menu"))
-    if request.method == "POST":
-        return handle_input(
-            "shift_form.html",
-            g.user.username,
-            g.user.name,
-            input_endpoint="worker",
-        )
-    query = {
-        key: request.args[key]
-        for key in ("year", "month")
-        if request.args.get(key) is not None
-    }
-    return redirect(url_for("worker", **query))
+@app.route("/staff/<username>", methods=["GET", "POST"])
+def staff_edit(username):
+    # 管理者が指定スタッフの希望を代理編集（締め切り後も可）。
+    guard = deny_if_not_admin()
+    if guard:
+        return guard
+    now = now_jst()
+    year, month = resolve_ym(now.year, now.month)
+    with closing(get_db()) as conn:
+        row = conn.execute(
+            "SELECT username, name FROM users WHERE username=? AND is_active=1",
+            (username,),
+        ).fetchone()
+        deadline = get_deadline(conn, year, month)
+    if not row:
+        flash("対象の職員が見つかりません（停止中の可能性があります）。")
+        return redirect(url_for("submissions", year=year, month=month))
+    return handle_input(
+        "shift_form.html", row[0], row[1],
+        year=year, month=month, redirect_endpoint="staff_edit",
+        redirect_kwargs={"username": row[0]}, editor_is_admin=True,
+        deadline=deadline, log_action_name="staff_shift_edit",
+    )
 
 
 @app.route("/admin")
@@ -623,11 +657,22 @@ def admin():
             "WHERE s.year=? AND s.month=?",
             (year, month),
         ).fetchall()
+        deadline = get_deadline(conn, year, month)
+        # 未提出の有効ユーザー数（締め切り運用の進捗把握用）
+        pending = conn.execute(
+            "SELECT COUNT(*) FROM users u WHERE u.is_active=1 AND NOT EXISTS ("
+            "SELECT 1 FROM shifts s WHERE s.username=u.username "
+            "AND s.year=? AND s.month=?)",
+            (year, month),
+        ).fetchone()[0]
     return render_template(
         "admin.html",
         year=year, month=month,
         cal=calendar.monthcalendar(year, month),
         rows=rows,
+        pending=pending,
+        deadline_label=deadline_label(deadline),
+        locked=is_locked_for_staff(deadline),
         **get_month_links(),
     )
 
@@ -712,11 +757,10 @@ def manage_users():
                                     (n, u),
                                 )
                             if p:
-                                # 管理者が新しいパスワードを設定した場合は
-                                # 本人の初回ログイン時に強制変更を促す
+                                # 管理者が新しいパスワードを設定（強制変更は廃止）
                                 conn.execute(
-                                    "UPDATE users SET password=?, role=?, name=?, color=?, "
-                                    "must_change_password=1 WHERE username=?",
+                                    "UPDATE users SET password=?, role=?, name=?, color=? "
+                                    "WHERE username=?",
                                     (
                                         generate_password_hash(normalize_password(p)),
                                         r, n, col, u,
@@ -725,7 +769,7 @@ def manage_users():
                                 log_action(conn, "user_edit", target=u, detail={"name": n, "role": r})
                                 # 管理者による他人のパスワード設定を専用イベントで記録（再発行運用の証跡）
                                 log_action(conn, "admin_password_set", target=u)
-                                flash("ユーザー情報を保存しました（本人は次回ログイン時にパスワード変更を求められます）")
+                                flash("ユーザー情報を保存しました（新しいパスワードを設定しました）")
                             else:
                                 # A: 編集時にパスワード空欄ならパスワードは据え置き
                                 conn.execute(
@@ -735,11 +779,11 @@ def manage_users():
                                 log_action(conn, "user_edit", target=u, detail={"name": n, "role": r})
                                 flash("ユーザー情報を保存しました（パスワードは変更なし）")
                         else:
-                            # 新規ユーザーは初回ログイン時にパスワード変更必須
+                            # 新規ユーザー登録（強制変更なし。本人がいつでも変更可能）
                             conn.execute(
                                 "INSERT INTO users "
-                                "(username, password, role, name, is_active, color, must_change_password) "
-                                "VALUES (?, ?, ?, ?, 1, ?, 1)",
+                                "(username, password, role, name, is_active, color) "
+                                "VALUES (?, ?, ?, ?, 1, ?)",
                                 (
                                     u,
                                     generate_password_hash(normalize_password(p)),
@@ -747,7 +791,7 @@ def manage_users():
                                 ),
                             )
                             log_action(conn, "user_create", target=u, detail={"name": n, "role": r})
-                            flash("ユーザーを登録しました（本人は初回ログイン時にパスワード変更を求められます）")
+                            flash("ユーザーを登録しました。")
                 elif action == "toggle":
                     target = conn.execute(
                         "SELECT role, is_active FROM users WHERE username=?",
@@ -820,9 +864,10 @@ def logs():
         "user_create": "ユーザー追加",
         "user_edit": "ユーザー修正",
         "user_toggle": "停止・復活",
-        "admin_password_set": "一時パスワード設定",
+        "admin_password_set": "パスワード設定（管理者）",
         "request_submit": "希望提出",
-        "confirm_save": "確定保存",
+        "staff_shift_edit": "希望を代理編集",
+        "deadline_set": "締め切り設定",
     }
     return render_template(
         "logs.html",
@@ -842,6 +887,7 @@ def submissions():
         return guard
     now = now_jst()
     year, month = safe_ym(now.year, now.month)
+    ym = f"{year}-{month:02d}"
     with closing(get_db()) as conn:
         users = conn.execute(
             "SELECT username, name, role FROM users WHERE is_active=1 ORDER BY name"
@@ -861,102 +907,80 @@ def submissions():
                 (year, month),
             ).fetchall()
         }
-        last_at = {
-            row[0]: format_jst(row[1])
-            for row in conn.execute(
-                "SELECT actor, MAX(ts) FROM audit_log "
-                "WHERE action='request_submit' AND target=? GROUP BY actor",
-                (f"{year}-{month:02d}",),
-            ).fetchall()
-        }
+        # 最終更新: 本人提出(request_submit)と管理者代理編集(staff_shift_edit)の両方を集計。
+        # target は新形式 "YYYY-MM:username"、旧データは "YYYY-MM"(actor=本人) も拾う。
+        last_at = {}
+        for ts, target, actor in conn.execute(
+            "SELECT ts, target, actor FROM audit_log "
+            "WHERE action IN ('request_submit','staff_shift_edit') "
+            "AND (target=? OR target LIKE ?) ORDER BY id",
+            (ym, ym + ":%"),
+        ).fetchall():
+            owner = target.split(":", 1)[1] if ":" in target else actor
+            last_at[owner] = ts  # id 昇順 → 最後に上書きされた値が最新
+        deadline = get_deadline(conn, year, month)
     items = [
         {
             "username": u[0], "name": u[1], "role": u[2],
             "submitted": u[0] in submitted,
             "ok": ok_counts.get(u[0], 0) or 0,
-            "last": last_at.get(u[0], ""),
+            "last": format_jst(last_at.get(u[0], "")),
         }
         for u in users
     ]
     pending = sum(1 for it in items if not it["submitted"])
     return render_template(
         "submissions.html", items=items, pending=pending,
-        year=year, month=month, **get_month_links()
+        year=year, month=month,
+        deadline=deadline or "", deadline_label=deadline_label(deadline),
+        locked=is_locked_for_staff(deadline),
+        **get_month_links()
     )
 
 
-@app.route("/confirm")
-def confirm():
-    # 確定シフトの作成/編集（管理者専用）。職員を選んで個別に編集する一覧。
+@app.route("/deadline", methods=["POST"])
+def set_deadline_route():
+    # 締め切り日の設定/解除（管理者専用）。空欄なら解除。
     guard = deny_if_not_admin()
     if guard:
         return guard
     now = now_jst()
-    year, month = safe_ym(now.year, now.month)
-    with closing(get_db()) as conn:
-        users = conn.execute(
-            "SELECT username, name, color FROM users WHERE is_active=1 ORDER BY name"
-        ).fetchall()
-        confirmed_counts = {
-            row[0]: row[1]
-            for row in conn.execute(
-                "SELECT username, SUM(CASE WHEN status='〇' THEN 1 ELSE 0 END) "
-                "FROM confirmed_shifts WHERE year=? AND month=? GROUP BY username",
-                (year, month),
-            ).fetchall()
-        }
-    items = [
-        {"username": u[0], "name": u[1], "color": u[2],
-         "confirmed_ok": confirmed_counts.get(u[0], 0) or 0}
-        for u in users
-    ]
-    return render_template(
-        "confirm_list.html", items=items, year=year, month=month, **get_month_links()
-    )
+    year, month = resolve_ym(now.year, now.month)
+    raw = (request.form.get("deadline") or "").strip()
+    if raw and parse_deadline(raw) is None:
+        flash("締め切り日の形式が正しくありません。")
+        return redirect(url_for("submissions", year=year, month=month))
+    with closing(get_db()) as conn, conn:
+        set_deadline(conn, year, month, raw)
+        log_action(conn, "deadline_set", target=f"{year}-{month:02d}",
+                   detail={"deadline": raw or "(解除)"})
+    flash("締め切りを更新しました。" if raw else "締め切りを解除しました。")
+    return redirect(url_for("submissions", year=year, month=month))
 
 
-@app.route("/confirm/<username>", methods=["GET", "POST"])
-def confirm_user(username):
-    # 指定職員の確定シフトを編集（管理者専用）。username は ? バインドで安全に照合。
+# 旧「確定シフト」URL は廃止。誤遷移防止のため新しい画面へ案内する（次リリースで削除）。
+@app.route("/confirm")
+@app.route("/confirm/<username>")
+def confirm_redirect(username=None):
     guard = deny_if_not_admin()
     if guard:
         return guard
-    with closing(get_db()) as conn:
-        row = conn.execute(
-            "SELECT username, name FROM users WHERE username=? AND is_active=1",
-            (username,),
-        ).fetchone()
-    if not row:
-        flash("対象の職員が見つかりません（停止中の可能性があります）")
-        return redirect(url_for("confirm"))
-    return handle_input("confirm_edit.html", row[0], row[1], confirmed=True)
+    flash("確定シフトは「希望管理」に統合しました。")
+    return redirect(url_for("submissions"))
 
 
 @app.route("/confirmed")
-def confirmed():
-    # 確定シフトのチーム全体表示（ログイン必須・読み取り専用）。備考は出さない。
+def confirmed_redirect():
     if not require_login():
         return redirect(url_for("login"))
-    now = now_jst()
-    year, month = safe_ym(now.year, now.month)
-    with closing(get_db()) as conn:
-        rows = conn.execute(
-            "SELECT s.day, u.name, u.color "
-            "FROM confirmed_shifts s INNER JOIN users u ON s.username = u.username "
-            "WHERE s.year=? AND s.month=? AND s.status='〇'",
-            (year, month),
-        ).fetchall()
-    return render_template(
-        "confirmed.html", year=year, month=month,
-        cal=calendar.monthcalendar(year, month), rows=rows, **get_month_links()
-    )
+    flash("確定シフトは廃止しました。シフトは入力画面で確認できます。")
+    return redirect(url_for("menu"))
 
 
 @app.route("/change_password", methods=["GET", "POST"])
 @limiter.limit("10 per minute", methods=["POST"])
 def change_password():
-    # ログイン必須化（未ログインの username 当て攻撃面を撤去）。
-    # must_change_password=1 の本人もこの画面に強制誘導される。
+    # ログイン必須化（未ログインの username 当て攻撃面を撤去）。任意のパスワード変更画面。
     if not require_login():
         return redirect(url_for("login"))
     u = g.user.username
@@ -989,9 +1013,8 @@ def change_password():
                 ),
             )
         with closing(get_db()) as conn, conn:
-            # 変更成功で must_change_password=0 に戻す
             conn.execute(
-                "UPDATE users SET password=?, must_change_password=0 WHERE username=?",
+                "UPDATE users SET password=? WHERE username=?",
                 (generate_password_hash(normalize_password(p_new)), u),
             )
             # 監査ログ（新旧パスワードは記録しない）

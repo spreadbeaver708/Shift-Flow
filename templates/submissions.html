@@ -1,12 +1,12 @@
 {% extends "base.html" %}
 {% from "_macros.html" import back_link, month_switch %}
 
-{% block title %}提出状況{% endblock %}
+{% block title %}希望管理{% endblock %}
 
 {% block content %}
 <header class="page-header">
-    <h1>提出状況</h1>
-    <p>{{ year }}年{{ month }}月のシフト希望です。</p>
+    <h1>希望管理</h1>
+    <p>{{ year }}年{{ month }}月の提出状況です。</p>
 </header>
 {{ back_link(url_for('menu')) }}
 {{ month_switch(
@@ -14,6 +14,27 @@
     url_for('submissions', year=next_y, month=next_m),
     year, month, now_y, now_m, next_y, next_m
 ) }}
+
+<section class="panel">
+    <h2>締め切り日</h2>
+    {% if locked %}
+    <p class="status-line"><span class="status-badge is-pending">締め切り済み</span> {{ deadline_label }}でスタッフの変更を締め切りました。</p>
+    {% elif deadline_label %}
+    <p class="status-line"><span class="status-badge is-done">受付中</span> {{ deadline_label }}になるとスタッフは変更できなくなります。</p>
+    {% else %}
+    <p class="status-line">締め切りは設定されていません。</p>
+    {% endif %}
+    <form method="post" action="{{ url_for('set_deadline_route') }}" class="inline-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="year" value="{{ year }}">
+        <input type="hidden" name="month" value="{{ month }}">
+        <label class="field-help" for="deadline_input">この日から変更不可（空にすると解除）</label>
+        <div class="inline-row">
+            <input type="date" id="deadline_input" name="deadline" value="{{ deadline }}">
+            <button type="submit" class="btn btn-primary">保存</button>
+        </div>
+    </form>
+</section>
 
 {% if pending == 0 %}
 <div class="notice notice-success" role="status">全員が提出済みです。</div>
@@ -24,7 +45,7 @@
 <div class="table-scroll">
 <table class="data-table">
     <thead>
-        <tr><th>名前</th><th>状況</th><th>〇の日数</th><th>最終提出（JST）</th></tr>
+        <tr><th>名前</th><th>状況</th><th>〇の日数</th><th>最終更新（JST）</th><th>編集</th></tr>
     </thead>
     <tbody>
     {% for item in items %}
@@ -35,6 +56,7 @@
             </span></td>
             <td>{{ item.ok if item.submitted else '—' }}</td>
             <td>{{ item.last or '—' }}</td>
+            <td><a class="btn btn-secondary" href="{{ url_for('staff_edit', username=item.username, year=year, month=month) }}">編集</a></td>
         </tr>
     {% endfor %}
     </tbody>

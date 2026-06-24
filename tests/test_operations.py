@@ -44,7 +44,8 @@ def test_pre_migration_backup_is_created(monkeypatch, tmp_path):
         flag = migrated.execute(
             "SELECT must_change_password FROM users WHERE username='admin'"
         ).fetchone()[0]
-    assert flag == 1
+    # 強制変更は廃止。移行で既存フラグは 0 に寝かされる。
+    assert flag == 0
 
 
 def test_daily_and_monthly_backup_retention(monkeypatch, tmp_path):
