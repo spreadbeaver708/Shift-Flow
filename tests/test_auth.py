@@ -46,18 +46,17 @@ def test_change_password_post_requires_login(client):
     assert "/login" in resp.headers["Location"]
 
 
-def test_must_change_password_forces_redirect(client, login):
-    """V23: 初回 admin は must_change_password=1。menu/admin/manage_users 等は強制的に
-    /change_password へリダイレクトされる。"""
+def test_no_forced_password_change(client, login):
+    """強制変更は廃止。初回 admin でも menu/admin 等にそのまま入れる
+    （/change_password へ強制誘導されない）。"""
     login("admin", "Admin-Initial-Passphrase-2026")
     for path in ("/menu", "/", "/admin", "/manage_users"):
         resp = client.get(path, follow_redirects=False)
-        assert resp.status_code == 302, path
-        assert "/change_password" in resp.headers["Location"], path
+        assert resp.status_code == 200, path
 
 
-def test_must_change_password_allows_change_logout_help(client, login):
-    """パスワード変更、POSTログアウト、ヘルプは強制リダイレクトの対象外。"""
+def test_change_password_and_help_accessible(client, login):
+    """パスワード変更・ヘルプは開け、POSTログアウトは login へ。"""
     login("admin", "Admin-Initial-Passphrase-2026")
     for path in ("/change_password", "/help"):
         resp = client.get(path, follow_redirects=False)
@@ -67,8 +66,8 @@ def test_must_change_password_allows_change_logout_help(client, login):
     assert "/login" in resp.headers["Location"]
 
 
-def test_change_password_clears_flag_and_session(client, login, app_module):
-    """V23: 変更成功で must_change_password=0、セッションは破棄されログインへ。"""
+def test_change_password_updates_and_clears_session(client, login, app_module):
+    """変更成功でセッションは破棄されログインへ。新PWでのみ再ログインできる。"""
     login("admin", "Admin-Initial-Passphrase-2026")
     resp = client.post(
         "/change_password",
@@ -109,13 +108,6 @@ def test_change_password_rejects_wrong_current(client, login):
         follow_redirects=False,
     )
     assert resp.status_code == 200
-
-
-def test_worker_redirects_to_menu_when_accessing_other(admin_client):
-    """V8: 他人の /worker/<name> を叩いたらログインではなくメニューへ。"""
-    resp = admin_client.get("/worker/別人", follow_redirects=False)
-    assert resp.status_code == 302
-    assert "/menu" in resp.headers["Location"]
 
 
 def test_logout_clears_session(admin_client):

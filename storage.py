@@ -17,7 +17,7 @@ from security_utils import (
 from time_utils import now_utc
 
 
-SCHEMA_VERSION = 30
+SCHEMA_VERSION = 31
 
 
 class DatabaseManager:
@@ -222,16 +222,22 @@ class DatabaseManager:
                 "CREATE TABLE IF NOT EXISTS app_state ("
                 "key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')"
             )
+            # 締め切り（年月ごとに1件）。この日からスタッフは希望を変更できない。
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS deadlines ("
+                "year INTEGER, month INTEGER, deadline TEXT, "
+                "PRIMARY KEY (year, month))"
+            )
 
+            # must_change_password 列は互換のため残すが、初回強制変更は廃止済み。
             user_columns = [row[1] for row in conn.execute("PRAGMA table_info(users)")]
             if "must_change_password" not in user_columns:
                 conn.execute(
                     "ALTER TABLE users ADD COLUMN must_change_password INTEGER DEFAULT 0"
                 )
             if previous_version < SCHEMA_VERSION:
-                # 旧方針の長さはハッシュから判定できないため、既存利用者全員へ
-                # 次回ログイン時の新方針パスフレーズ設定を求める。
-                conn.execute("UPDATE users SET must_change_password=1")
+                # 強制変更を廃止したため、過去に立った強制フラグを一括で寝かせる。
+                conn.execute("UPDATE users SET must_change_password=0")
 
             shift_columns = [row[1] for row in conn.execute("PRAGMA table_info(shifts)")]
             if "username" not in shift_columns:
@@ -242,14 +248,8 @@ class DatabaseManager:
                 "WHERE username IS NULL"
             )
 
-            conn.execute(
-                "CREATE TABLE IF NOT EXISTS confirmed_shifts ("
-                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-                "year INTEGER, month INTEGER, day INTEGER, "
-                "username TEXT, status TEXT, "
-                "UNIQUE(year, month, day, username), "
-                "FOREIGN KEY(username) REFERENCES users(username) ON DELETE CASCADE)"
-            )
+            # 確定シフト（confirmed_shifts）は廃止。既存DBのテーブルは非破壊で温存し、
+            # ここでは新規作成・参照しない（締め切り後の shifts を最終予定として扱う）。
 
             duplicate_names = conn.execute(
                 "SELECT COUNT(*) FROM ("
@@ -277,13 +277,13 @@ class DatabaseManager:
                     generated = True
                 if not is_valid_password(initial, "admin"):
                     raise RuntimeError(
-                        "ADMIN_INIT_PASSWORD は15〜128文字で、"
+                        "ADMIN_INIT_PASSWORD は8〜128文字で、"
                         "推測されにくい値を指定してください"
                     )
                 cursor = conn.execute(
                     "INSERT OR IGNORE INTO users "
                     "(username, password, role, name, is_active, color, must_change_password) "
-                    "VALUES (?, ?, ?, ?, 1, ?, 1)",
+                    "VALUES (?, ?, ?, ?, 1, ?, 0)",
                     (
                         "admin",
                         generate_password_hash(normalize_password(initial)),
@@ -299,7 +299,7 @@ class DatabaseManager:
 
     def ready_check(self):
         self.ensure_ready()
-        required = {"users", "shifts", "confirmed_shifts", "audit_log", "app_state"}
+        required = {"users", "shifts", "deadlines", "audit_log", "app_state"}
         with closing(self.connect()) as conn:
             conn.execute("SELECT 1").fetchone()
             tables = {

@@ -5,8 +5,8 @@
 
 {% block content %}
 <header class="page-header">
-    <h1>希望シフトを見る</h1>
-    <p>{{ year }}年{{ month }}月・出勤可能な人を表示します。</p>
+    <h1>みんなの希望</h1>
+    <p>{{ year }}年{{ month }}月・出勤できる人を表示します。</p>
 </header>
 {{ back_link(url_for('menu')) }}
 {{ month_switch(
@@ -14,6 +14,16 @@
     url_for('admin', year=next_y, month=next_m),
     year, month, now_y, now_m, next_y, next_m
 ) }}
+
+{% if locked %}
+<div class="notice notice-warning" role="status">{{ deadline_label }}で締め切り済みです。</div>
+{% elif deadline_label %}
+<div class="notice" role="status">締め切りは {{ deadline_label }} です。</div>
+{% endif %}
+{% if pending and pending > 0 %}
+<div class="notice notice-warning" role="status">未提出は{{ pending }}名です。</div>
+{% endif %}
+<p class="field-help">直したいときは <a href="{{ url_for('submissions', year=year, month=month) }}">希望管理</a> から各スタッフを編集できます。</p>
 
 <div class="table-scroll">
 <table class="calendar-table">

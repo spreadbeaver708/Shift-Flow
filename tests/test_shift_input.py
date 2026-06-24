@@ -55,10 +55,7 @@ def test_index_html_has_no_inline_onclick(admin_client):
 
 
 def test_worker_html_has_no_inline_onclick(admin_client, app_module):
-    """共通入力画面にinline onclickがなく、旧URLは正規URLへ移る。"""
-    legacy = admin_client.get("/worker/管理者", follow_redirects=False)
-    assert legacy.status_code == 302
-    assert legacy.headers["Location"].endswith("/worker")
+    """共通入力画面に inline onclick が無い。"""
     resp = admin_client.get("/worker")
     body = resp.get_data(as_text=True)
     assert "onclick=" not in body

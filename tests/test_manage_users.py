@@ -12,8 +12,8 @@ def _read_user(app_module, username):
         ).fetchone()
 
 
-def test_add_new_user_sets_must_change_password(admin_client, app_module):
-    """V23: 管理者が新規追加したユーザーは must_change_password=1。"""
+def test_add_new_user_no_forced_change(admin_client, app_module):
+    """強制変更は廃止。新規ユーザーの must_change_password は 0。"""
     resp = admin_client.post(
         "/manage_users",
         data={
@@ -31,7 +31,7 @@ def test_add_new_user_sets_must_change_password(admin_client, app_module):
     assert row is not None
     assert row[1] == "worker"
     assert row[2] == "太郎"
-    assert row[4] == 1  # must_change_password
+    assert row[4] == 0  # must_change_password（強制変更なし）
 
 
 def test_edit_mode_ignores_form_username(admin_client, app_module):

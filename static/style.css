@@ -538,6 +538,7 @@ button.shift-tag {
     border-radius: 999px;
     font-size: 0.8rem;
     font-weight: 700;
+    white-space: nowrap;
 }
 
 .status-badge.is-done {
@@ -628,6 +629,35 @@ button.shift-tag {
     color: var(--danger);
     font-size: 3rem;
     font-weight: 800;
+}
+
+.status-line {
+    margin: 0 0 12px;
+}
+
+.inline-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    margin-top: 8px;
+}
+
+.inline-row input[type="date"] {
+    flex: 1 1 180px;
+    min-height: 46px;
+    padding: 10px 12px;
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    background: #fff;
+    color: var(--text);
+}
+
+.readonly-remark {
+    margin: 6px 0 0;
+    color: var(--muted);
+    font-size: 0.82rem;
+    overflow-wrap: anywhere;
 }
 
 @media (max-width: 767px) {

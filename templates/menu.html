@@ -27,22 +27,15 @@
 
 {% if current_user.role == 'admin' %}
 <section class="menu-group">
-    <h2>今日使う</h2>
+    <h2>シフトの管理</h2>
     <div class="menu-grid">
-        <a href="{{ url_for('submissions') }}" class="btn btn-primary">提出状況を見る</a>
-        <a href="{{ url_for('admin') }}" class="btn btn-secondary">希望シフトを見る</a>
+        <a href="{{ url_for('submissions') }}" class="btn btn-primary">提出状況・締め切り</a>
+        <a href="{{ url_for('admin') }}" class="btn btn-secondary">みんなの希望を見る</a>
         <a href="{{ url_for('index') }}" class="btn btn-secondary">自分の希望を入力</a>
     </div>
 </section>
 <section class="menu-group">
-    <h2>確定する</h2>
-    <div class="menu-grid">
-        <a href="{{ url_for('confirm') }}" class="btn btn-primary">確定シフトを作る</a>
-        <a href="{{ url_for('confirmed') }}" class="btn btn-secondary">確定シフトを見る</a>
-    </div>
-</section>
-<section class="menu-group">
-    <h2>管理・確認</h2>
+    <h2>設定</h2>
     <div class="menu-grid">
         <a href="{{ url_for('manage_users') }}" class="btn btn-secondary">ユーザー管理</a>
         <a href="{{ url_for('logs') }}" class="btn btn-secondary">操作ログ</a>
@@ -53,8 +46,7 @@
 {% endif %}
 {% else %}
 <section class="menu-group menu-group-primary">
-    <a href="{{ url_for('worker') }}" class="btn btn-primary btn-large">自分のシフト希望を入力</a>
-    <a href="{{ url_for('confirmed') }}" class="btn btn-secondary btn-large">確定シフトを見る</a>
+    <a href="{{ url_for('worker') }}" class="btn btn-primary btn-large">シフト希望を入力</a>
 </section>
 {% endif %}
 
