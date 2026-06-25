@@ -130,6 +130,17 @@ class DatabaseManager:
             rows = conn.execute("SELECT key, value FROM app_state").fetchall()
         return dict(rows)
 
+    def record_external_backup_check(self):
+        """管理者が『月次の外部保存を確認した』ことを記録する（管理メニューのボタンから）。
+
+        同一ディスク内バックアップは災害に弱いため、月次で外部退避したかを画面で追える
+        ようにする。記録は app_state に残し、status() 経由でメニューに表示・警告する。
+        """
+        self._set_state(
+            "last_external_backup_checked",
+            now_utc().isoformat(timespec="seconds"),
+        )
+
     def status(self):
         state = self.state()
         try:

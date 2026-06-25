@@ -3,6 +3,7 @@ import json
 import secrets
 import calendar
 import ipaddress
+import unicodedata
 from contextlib import closing
 from datetime import datetime, timedelta
 from types import SimpleNamespace
@@ -41,6 +42,9 @@ def create_app():
         PERMANENT_SESSION_LIFETIME=timedelta(minutes=settings.session_idle_minutes),
         MAX_CONTENT_LENGTH=256 * 1024,
     )
+    # Host ヘッダ検証（設定時のみ）。Flask が Host/X-Forwarded-Host を照合し不一致は 400。
+    if settings.trusted_hosts:
+        application.config["TRUSTED_HOSTS"] = list(settings.trusted_hosts)
     if settings.trusted_proxy_hops:
         application.wsgi_app = ProxyFix(
             application.wsgi_app,
@@ -70,6 +74,18 @@ AUDIT_RETENTION = SETTINGS.audit_retention
 csrf = CSRFProtect(app)
 
 def client_ip():
+    """レート制限キー・監査ログ用のクライアント IP を決める。
+
+    TRUST_CF_CONNECTING_IP=1 のときだけ CF-Connecting-IP を優先する。これは
+    「全インバウンドが Cloudflare/Render エッジを経由し、オリジン（Render の web
+    サービス）へエッジを迂回して直接到達する経路が無い」という構成が前提（Cloudflare
+    公式: CF-Connecting-IP はエッジ経由が 100% 保証される場合のみ信頼してよい）。
+    ここでの ipaddress 検証は「IP 形式か」だけを見るもので、妥当な形式の偽装 IP は
+    防げない＝なりすまし対策ではない。前提が崩れる構成（Render 外への移設、オリジン
+    直公開など）では TRUST_CF_CONNECTING_IP=0 に戻すか、送信元を Cloudflare の IP
+    レンジに限定すること。形式不正・不在時は ProxyFix 経由の remote_addr へフォールバック。
+    デプロイ後は /logs の IP が実クライアント IP かを確認して 0/1 を確定する。
+    """
     if TRUST_CF_CONNECTING_IP:
         cf = request.headers.get("CF-Connecting-IP")
         if cf:
@@ -123,6 +139,19 @@ USERNAME_RE = re.compile(r"^[A-Za-z0-9_.@-]{1,32}$")
 # 旧URL互換とログの可読性を保つため、予約文字と制御文字を拒否する。
 NAME_FORBIDDEN_RE = re.compile(r"[/\\?#&<>\r\n\t\x00]")
 REMARK_MAX_LEN = 500
+# 備考は自由入力。表示崩れ・ログ汚染を防ぐため保存前に正規化する（改行・タブは残す）。
+_REMARK_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def normalize_remark(text):
+    """備考の保存前正規化: NFC・制御文字除去・改行統一/連続上限・長さ上限。"""
+    if not text:
+        return ""
+    text = unicodedata.normalize("NFC", text)
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = _REMARK_CONTROL_RE.sub("", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text[:REMARK_MAX_LEN]
 
 
 def get_month_links():
@@ -134,28 +163,31 @@ def get_month_links():
     }
 
 
-def safe_ym(default_y, default_m):
-    # O: year/month の範囲検証
-    y = request.args.get("year", default_y, type=int)
-    m = request.args.get("month", default_m, type=int)
+def coerce_year_month(source, default_y, default_m):
+    """source(request.args または request.values)から year/month を範囲検証して返す。
+
+    safe_ym / resolve_ym の共通の低レベル処理。両者は「どの source を読むか」だけ違うため
+    検証ロジックをここに一本化する（統合はせず、用途別の薄いラッパとして役割を残す）。
+    """
+    y = source.get("year", default_y, type=int)
+    m = source.get("month", default_m, type=int)
     if not isinstance(m, int) or not (1 <= m <= 12):
         m = default_m
     if not isinstance(y, int) or not (2000 <= y <= 2100):
         y = default_y
     return y, m
+
+
+def safe_ym(default_y, default_m):
+    # O: year/month の範囲検証（GET 表示用。クエリのみ参照）
+    return coerce_year_month(request.args, default_y, default_m)
 
 
 def resolve_ym(default_y, default_m):
     """保存先となる年月を一意に決める（GET=クエリ / POST=隠しフィールド+クエリ）。
-    呼び出し側はこの 1 回の結果をロック判定と保存の両方に使い、月のズレを防ぐ。"""
-    # request.values は args+form を統合。POST の保存対象月を確実に拾う。
-    y = request.values.get("year", default_y, type=int)
-    m = request.values.get("month", default_m, type=int)
-    if not isinstance(m, int) or not (1 <= m <= 12):
-        m = default_m
-    if not isinstance(y, int) or not (2000 <= y <= 2100):
-        y = default_y
-    return y, m
+    呼び出し側はこの 1 回の結果をロック判定と保存の両方に使い、月のズレを防ぐ。
+    request.values は args+form を統合し、POST の保存対象月を確実に拾う。"""
+    return coerce_year_month(request.values, default_y, default_m)
 
 
 # =====================
@@ -223,7 +255,7 @@ def load_current_user():
             login_time = None
         if login_time is None or login_time.tzinfo is None:
             session.clear()
-            flash("セッションを確認できませんでした。もう一度ログインしてください。")
+            flash("安全のためログアウトしました。もう一度ログインしてください。")
             return
         if now_utc() - login_time >= timedelta(hours=SESSION_ABSOLUTE_HOURS):
             session.clear()
@@ -298,7 +330,14 @@ def add_security_headers(resp):
     # 対策、login の CSRF トークン鮮度、CVE-2026-27205 = session アクセス時の Vary: Cookie 欠落緩和）。
     if request.endpoint != "static":
         resp.headers["Cache-Control"] = "no-store"
-    if request.method == "POST" and resp.status_code < 400 and BACKUP_ON_STARTUP:
+    # O-1: 日次バックアップを POST 成功時だけでなく、通常ページの成功 GET でも起動する。
+    # 24h スロットル（_scheduled_backup_due）＋ロックで多重・長時間化を防ぐため、誰かが
+    # 画面を開けば「書き込みの無い期間」でもその日のバックアップが取得される。
+    if (
+        BACKUP_ON_STARTUP
+        and resp.status_code < 400
+        and request.endpoint not in {"static", "healthz", "readyz"}
+    ):
         try:
             db_manager.scheduled_backup()
         except Exception as exc:
@@ -314,7 +353,7 @@ def handle_403(e):
         "error.html",
         code=403,
         title="この画面は開けません",
-        message="管理者専用の画面です。メニューから操作をやり直してください。",
+        message="管理者だけが使う画面です。メニューから操作をやり直してください。",
     ), 403
 
 
@@ -367,6 +406,17 @@ _DUMMY_PW_HASH = generate_password_hash("not-a-real-password")
 _AUDIT_DETAIL_MAX = 500
 
 
+def _serialize_detail(detail):
+    """監査ログ detail を文字列化し、長さ上限で切り詰める。
+
+    禁止（呼び出し側の責務）: パスワード/ハッシュ/セッション値/備考(remark)本文/CSRF
+    トークンは detail に渡さない。dict は JSON 文字列化する。検証は test_audit で固定。
+    """
+    if not isinstance(detail, str):
+        detail = json.dumps(detail, ensure_ascii=False)
+    return detail[:_AUDIT_DETAIL_MAX]
+
+
 def log_action(conn, action, target="", detail="", actor=None, actor_name=None):
     """監査ログを 1 行追加する（呼び出し側のトランザクション conn 内で実行）。
 
@@ -378,8 +428,6 @@ def log_action(conn, action, target="", detail="", actor=None, actor_name=None):
         u = getattr(g, "user", None)
         actor = u.username if u else "anonymous"
         actor_name = u.name if u else ""
-    if not isinstance(detail, str):
-        detail = json.dumps(detail, ensure_ascii=False)
     try:
         ip = client_ip() or ""
     except Exception:
@@ -393,7 +441,7 @@ def log_action(conn, action, target="", detail="", actor=None, actor_name=None):
             (actor_name or "")[:64],
             (action or "")[:32],
             (target or "")[:128],
-            detail[:_AUDIT_DETAIL_MAX],
+            _serialize_detail(detail),
             (ip or "")[:64],
         ),
     )
@@ -432,7 +480,13 @@ def deny_if_not_admin():
 
 
 # =====================
-# ルート定義
+# ルート定義（初心者向けの地図。Blueprint 分割はせず単一ファイルで追えるようにする）
+#   認証:   /login  /logout  /change_password
+#   入力:   /worker（職員本人）  /（管理者本人）
+#   集計:   /menu  /admin（みんなの希望）  /submissions（提出状況・締め切り）
+#   管理:   /staff/<u>（代理編集）  /manage_users  /logs  /deadline  /backup_check
+#   監視:   /healthz  /readyz   その他: /help
+#   互換:   /confirm  /confirmed（旧確定シフト。リダイレクトのみ・撤去予定）
 # =====================
 @app.route("/login", methods=["GET", "POST"])
 @limiter.limit(LOGIN_RATE_LIMIT, methods=["POST"])
@@ -478,24 +532,53 @@ def login():
     return render_template("login.html")
 
 
+def _is_external_check_overdue(value, days=31):
+    """月次の外部保存確認が一定日数(既定31日)以上記録されていなければ True。"""
+    if not value:
+        return True
+    try:
+        last = datetime.fromisoformat(value)
+        return now_utc() - last >= timedelta(days=days)
+    except (TypeError, ValueError):
+        return True
+
+
 @app.route("/menu")
 def menu():
     if not require_login():
         return redirect(url_for("login"))
     links = get_month_links()
+    # M-1/U-3: 当月と翌月の両方で未提出を判定し、未提出かつ入力可能な月だけを促す。
+    # 「未提出と言われた月」と「入力ボタンが開く月」を必ず一致させ、当月の出し忘れも拾う。
+    candidate_months = [
+        (links["now_y"], links["now_m"]),
+        (links["next_y"], links["next_m"]),
+    ]
+    unsubmitted = []
     with closing(get_db()) as conn:
-        # 未提出判定も username を権威キーに（表示名変更後もズレない）
-        exists = conn.execute(
-            "SELECT 1 FROM shifts WHERE year=? AND month=? AND username=?",
-            (links["next_y"], links["next_m"], g.user.username),
-        ).fetchone()
+        for yy, mm in candidate_months:
+            # 未提出判定も username を権威キーに（表示名変更後もズレない）
+            submitted = conn.execute(
+                "SELECT 1 FROM shifts WHERE year=? AND month=? AND username=?",
+                (yy, mm, g.user.username),
+            ).fetchone()
+            # 締め切り後は職員が出せないので促さない（管理者はロック対象外）。
+            locked = is_locked_for_staff(get_deadline(conn, yy, mm))
+            if not submitted and (g.user.role == "admin" or not locked):
+                unsubmitted.append((yy, mm))
+    # 入力ボタンの着地月: 未提出のうち最も早い月（無ければ翌月）。
+    worker_year, worker_month = unsubmitted[0] if unsubmitted else (links["next_y"], links["next_m"])
     backup_state = db_manager.status()
+    external_checked = backup_state.get("last_external_backup_checked", "")
     return render_template(
         "menu.html",
-        unsubmitted=not exists,
-        next_m=links["next_m"],
+        unsubmitted_months=[mm for _, mm in unsubmitted],
+        worker_year=worker_year,
+        worker_month=worker_month,
         backup_error=backup_state.get("last_backup_error", ""),
         backup_success=backup_state.get("last_backup_success", ""),
+        external_checked=external_checked,
+        external_overdue=_is_external_check_overdue(external_checked),
         disk_low=backup_state.get("disk_free_ratio", 1) < 0.1,
     )
 
@@ -537,7 +620,7 @@ def handle_input(
                             status = "×"
                         if status == "〇":
                             ok_count += 1
-                        remark = (request.form.get(f"remark_{day}", "") or "")[:REMARK_MAX_LEN]
+                        remark = normalize_remark(request.form.get(f"remark_{day}", ""))
                         conn.execute(
                             "INSERT INTO shifts (year, month, day, username, name, status, remarks) "
                             "VALUES (?,?,?,?,?,?,?)",
@@ -607,7 +690,7 @@ def worker():
         deadline = get_deadline(conn, year, month)
     locked = is_locked_for_staff(deadline)
     if request.method == "POST" and locked:
-        flash("締め切り済みのため変更できません。")
+        flash("締め切り後のため、見るだけです。変更は管理者に伝えてください。")
         return redirect(url_for("worker", year=year, month=month))
     return handle_input(
         "shift_form.html", g.user.username, g.user.name,
@@ -631,7 +714,7 @@ def staff_edit(username):
         ).fetchone()
         deadline = get_deadline(conn, year, month)
     if not row:
-        flash("対象の職員が見つかりません（停止中の可能性があります）。")
+        flash("職員が見つかりません。停止中の職員は一覧で確認してください。")
         return redirect(url_for("submissions", year=year, month=month))
     return handle_input(
         "shift_form.html", row[0], row[1],
@@ -868,6 +951,7 @@ def logs():
         "request_submit": "希望提出",
         "staff_shift_edit": "希望を代理編集",
         "deadline_set": "締め切り設定",
+        "backup_check": "外部保存の確認",
     }
     return render_template(
         "logs.html",
@@ -958,14 +1042,29 @@ def set_deadline_route():
     return redirect(url_for("submissions", year=year, month=month))
 
 
-# 旧「確定シフト」URL は廃止。誤遷移防止のため新しい画面へ案内する（次リリースで削除）。
+@app.route("/backup_check", methods=["POST"])
+def backup_check():
+    # 管理者が「月次の外部保存を確認した」と記録する（メニューの状態パネルから）。
+    guard = deny_if_not_admin()
+    if guard:
+        return guard
+    db_manager.record_external_backup_check()
+    with closing(get_db()) as conn, conn:
+        log_action(conn, "backup_check")
+    flash("外部保存の確認を記録しました。")
+    return redirect(url_for("menu"))
+
+
+# 旧「確定シフト」URL は廃止。誤遷移防止のため新しい画面へ案内する。
+# 撤去予定: 2026-09 以降のリリースで削除（事前に /logs で /confirm・/confirmed への
+# アクセスが無いことを確認してから外す）。
 @app.route("/confirm")
 @app.route("/confirm/<username>")
 def confirm_redirect(username=None):
     guard = deny_if_not_admin()
     if guard:
         return guard
-    flash("確定シフトは「希望管理」に統合しました。")
+    flash("確定シフトは「提出状況・締め切り」に統合しました。")
     return redirect(url_for("submissions"))
 
 

@@ -134,10 +134,10 @@ def test_staff_edit_logs_proxy_action(admin_client, app_module):
 
 
 def test_staff_edit_page_links_back_to_submissions(admin_client):
-    """代理編集画面は『希望管理』へ戻れる（一覧→編集→一覧の動線）。"""
+    """代理編集画面は『提出状況・締め切り』へ戻れる（一覧→編集→一覧の動線）。"""
     _add_worker(admin_client)
     body = admin_client.get("/staff/taro?year=2026&month=7").get_data(as_text=True)
-    assert "希望管理に戻る" in body
+    assert "提出状況・締め切りに戻る" in body
     assert "/submissions" in body
 
 

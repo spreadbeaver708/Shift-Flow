@@ -4,6 +4,7 @@
     --surface: #ffffff;
     --surface-soft: #f4f7f5;
     --border: #cbd5d0;
+    --border-input: #6b7872; /* 入力欄の枠線。白背景に約4.6:1で WCAG 1.4.11(非テキスト3:1)を満たす */
     --text: #17211d;
     --muted: #52615a;
     --warning: #8a4b00;
@@ -95,6 +96,11 @@ textarea {
     letter-spacing: 0.04em;
 }
 
+/* D4: ボタンの役割を固定する。
+   btn-primary(緑)=主要操作・保存・進む / btn-secondary(白)=戻る・一覧・補助
+   btn-danger(赤枠)=停止・失敗対応 / link-button=低頻度の補助。色の意味は
+   緑=正常/主要, 黄橙(--warning)=注意(未提出・締切前・要確認), 赤(--danger)=失敗/停止,
+   青(--focus)=フォーカス表示のみ。 */
 .btn {
     display: inline-flex;
     min-height: 44px;
@@ -207,8 +213,7 @@ textarea {
 }
 
 .field-help,
-.character-count,
-.request-hint {
+.character-count {
     margin: 0;
     color: var(--muted);
     font-size: 0.875rem;
@@ -221,7 +226,7 @@ textarea {
     width: 100%;
     min-height: 46px;
     padding: 10px 12px;
-    border: 2px solid var(--border);
+    border: 2px solid var(--border-input);
     border-radius: 8px;
     background: #fff;
     color: var(--text);
@@ -236,7 +241,7 @@ input[type="color"] {
     width: 70px;
     min-height: 46px;
     padding: 3px;
-    border: 2px solid var(--border);
+    border: 2px solid var(--border-input);
     border-radius: 8px;
 }
 
@@ -306,11 +311,28 @@ input[type="color"] {
 .footer-nav {
     display: flex;
     flex-wrap: wrap;
+    align-items: center;
     justify-content: center;
-    gap: 16px;
+    gap: 8px 16px;
     margin-top: 32px;
     padding-top: 20px;
     border-top: 1px solid #e4e9e6;
+}
+
+/* D1: リンクとログアウトボタンを同じ高さ・行に揃え、44px のタップ領域を確保する */
+.footer-nav a,
+.footer-nav .link-button {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    padding: 0 8px;
+    line-height: 1.2;
+    text-decoration: underline;
+}
+
+.footer-nav form {
+    display: inline-flex;
+    margin: 0;
 }
 
 .system-note {
@@ -362,7 +384,7 @@ input[type="color"] {
 }
 
 .closed-label {
-    color: #8a9690;
+    color: var(--muted); /* 旧 #8a9690 は約2.88:1。--muted(#52615a)で約6.1:1, WCAG 1.4.3 AA */
     font-size: 0.78rem;
 }
 
@@ -499,6 +521,7 @@ input[type="color"] {
 .shift-tag {
     display: block;
     width: 100%;
+    min-width: 0;
     margin: 3px 0;
     padding: 4px 5px;
     border: 1px solid rgba(0, 0, 0, 0.25);
@@ -507,6 +530,13 @@ input[type="color"] {
     color: #17211d;
     font-size: 0.78rem;
     text-align: left;
+    overflow-wrap: anywhere; /* D2: 長い職員名でもセル外へはみ出させない */
+}
+
+/* D2: 備考トグルの名前もセル幅で折り返す */
+.shift-tag summary,
+.shift-tag details p {
+    overflow-wrap: anywhere;
 }
 
 button.shift-tag {
@@ -523,6 +553,12 @@ button.shift-tag {
 
 .break-word {
     overflow-wrap: anywhere;
+}
+
+/* U1: 全休(〇0件)の提出を一目で区別する注意色 */
+.all-off {
+    color: var(--warning);
+    font-weight: 700;
 }
 
 .empty-state {
@@ -549,6 +585,26 @@ button.shift-tag {
 .status-badge.is-pending {
     color: var(--danger);
     background: var(--danger-bg);
+}
+
+/* F3/C-5: 締切状態は提出状態(緑=済/赤=未)と色語彙を分け、中立色にする。
+   受付中=緑(進行可)、締め切り済み=灰(中立・無効)で、赤=エラーの連想を避ける。 */
+.status-badge.is-open {
+    color: var(--primary-dark);
+    background: var(--success-bg);
+}
+
+.status-badge.is-locked {
+    color: var(--muted);
+    background: #eef1ef;
+}
+
+/* 色語彙: 橙(is-attention)=未提出・注意・要確認、赤(is-pending)=失敗/要対応のみ、
+   灰(is-locked)=締切済みの中立状態、緑(is-done/is-open)=提出済み・受付中・正常。
+   赤は本当の失敗・危険にだけ使い、保留状態(未提出)はエラーに見せない（色彩心理）。 */
+.status-badge.is-attention {
+    color: var(--warning);
+    background: var(--warning-bg);
 }
 
 .panel,
@@ -605,8 +661,15 @@ button.shift-tag {
 }
 
 .protected-label {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    padding: 0 12px;
+    border: 2px solid transparent;
     color: var(--muted);
     font-size: 0.85rem;
+    white-space: nowrap;
 }
 
 .help-list dt {
@@ -635,6 +698,10 @@ button.shift-tag {
     margin: 0 0 12px;
 }
 
+.inline-form {
+    margin: 0;
+}
+
 .inline-row {
     display: flex;
     flex-wrap: wrap;
@@ -647,7 +714,7 @@ button.shift-tag {
     flex: 1 1 180px;
     min-height: 46px;
     padding: 10px 12px;
-    border: 2px solid var(--border);
+    border: 2px solid var(--border-input);
     border-radius: 8px;
     background: #fff;
     color: var(--text);
@@ -731,7 +798,8 @@ button.shift-tag {
     }
 
     .row-actions .btn,
-    .row-actions form {
+    .row-actions form,
+    .row-actions .protected-label {
         flex: 1;
     }
 

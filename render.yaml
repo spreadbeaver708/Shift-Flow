@@ -35,7 +35,7 @@ services:
       - key: SESSION_ABSOLUTE_HOURS
         value: "24"                 # 操作を続けていても、この時間で再ログインを求める
       - key: TRUST_CF_CONNECTING_IP
-        value: "1"                  # 前段がCloudflare/Renderエッジのため、真のクライアントIPを CF-Connecting-IP から取得（レート制限・監査ログの精度）
+        value: "1"                  # 全インバウンドがCloudflare/Renderエッジ経由でオリジン直到達経路が無い前提でのみ安全。デプロイ後 /logs のIPが実クライアントIPか確認し、不自然なら "0"（X-Forwarded-For + TRUSTED_PROXY_HOPS で取得）。Render外へ移設する場合は "0" に戻す
       - key: LOGIN_RATE_LIMIT
         value: "20 per minute"      # ログイン試行の上限（10名運用で締め出されにくく）。必要なら調整
       - key: BACKUP_KEEP
@@ -48,3 +48,6 @@ services:
         generateValue: true         # Render が安全なランダム値を自動生成（手入力不要）
       - key: ADMIN_INIT_PASSWORD
         sync: false                 # 秘密の値。初回デプロイ前に手入力。admin 作成後は本番 env から削除推奨（以後は未使用）
+      # - key: TRUSTED_HOSTS        # 任意（防御強化）: Hostヘッダ検証を有効化。公開後にRenderの実ホスト名を /readyz 等で確認してから設定する
+      #   value: shift-flow.onrender.com   # カスタムドメインがあればカンマ区切りで追加。未設定なら検証は無効（既定）
+      #                                    # 注意: 設定時は /healthz・/readyz も同じHostでのみ200を返す。Renderのヘルスチェックが届く公開ホスト名を必ず含めること
