@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% from "_macros.html" import back_link, month_switch %}
 
-{% block title %}希望シフトを見る{% endblock %}
+{% block title %}みんなの希望{% endblock %}
 
 {% block content %}
 <header class="page-header">
@@ -23,7 +23,7 @@
 {% if pending and pending > 0 %}
 <div class="notice notice-warning" role="status">未提出は{{ pending }}名です。</div>
 {% endif %}
-<p class="field-help">直したいときは <a href="{{ url_for('submissions', year=year, month=month) }}">希望管理</a> から各スタッフを編集できます。</p>
+<p class="field-help">直したいときは <a href="{{ url_for('submissions', year=year, month=month) }}">提出状況・締め切り</a> から各職員を編集できます。</p>
 
 <div class="table-scroll">
 <table class="calendar-table">
@@ -39,7 +39,7 @@
                     {% if row[0] == day and row[2] == '〇' %}
                     <div class="shift-tag">
                         <input class="color-swatch" type="color" value="{{ row[3] }}"
-                               disabled aria-label="{{ row[1] }}さんの表示色">
+                               disabled aria-hidden="true" tabindex="-1">
                         {% if row[4] %}
                         <details>
                             <summary>※ {{ row[1] }}</summary>

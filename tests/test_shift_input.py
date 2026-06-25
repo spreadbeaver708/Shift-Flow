@@ -63,20 +63,56 @@ def test_worker_html_has_no_inline_onclick(admin_client, app_module):
     assert 'id="modalSaveBtn"' in body
 
 
-def test_menu_unsubmitted_uses_username(admin_client):
-    """V28: メニューの未提出判定は username 基準。翌月分を提出すると警告が消える。"""
-    from datetime import datetime, timedelta
+def _freeze_jst(app_module, monkeypatch, y=2026, mo=6, d=10):
+    """now_jst を固定し、月境界・実行マシンTZに依存しないようにする。"""
+    monkeypatch.setattr(
+        app_module, "now_jst",
+        lambda: datetime(y, mo, d, 12, 0, tzinfo=ZoneInfo("Asia/Tokyo")),
+    )
 
-    now = datetime.now()
-    nd = datetime(now.year, now.month, 1) + timedelta(days=32)
-    ny, nm = nd.year, nd.month
+
+def test_menu_unsubmitted_uses_username(admin_client, app_module, monkeypatch):
+    """メニューの未提出判定は username 基準。当月・翌月の両方を提出すると警告が消える。
+
+    U-3: メニューは当月と翌月の両方の未提出を促す。片方だけ出しても警告は残り、
+    両方提出して初めて消える（提出検知が username 基準であることも兼ねて確認）。
+    now_jst を 2026-06-10 に固定し当月=6/翌月=7 を確定（月境界・TZ非依存）。
+    """
+    _freeze_jst(app_module, monkeypatch)
+    data = {f"day_{d}": "〇" for d in range(1, 32)}
     # 提出前: 未提出の警告が出る
     assert "未提出" in admin_client.get("/menu").get_data(as_text=True)
-    # 翌月分を提出（開室日が必ず含まれるよう全日 〇 を送る。safe_ym は query から読む）
-    data = {f"day_{d}": "〇" for d in range(1, 32)}
-    admin_client.post(f"/?year={ny}&month={nm}", data=data)
-    # 提出後: 警告が消える
+    # 翌月(7月)だけ提出 → 当月(6月)が未提出なので警告は残る
+    admin_client.post("/?year=2026&month=7", data=data)
+    assert "未提出" in admin_client.get("/menu").get_data(as_text=True)
+    # 当月(6月)も提出 → 警告が消える
+    admin_client.post("/?year=2026&month=6", data=data)
     assert "未提出" not in admin_client.get("/menu").get_data(as_text=True)
+
+
+def test_menu_worker_link_targets_unsubmitted_month(client, login, app_module, monkeypatch):
+    """M-1: 未提出バナーが指す月と「シフト希望を入力」の着地月が一致する。
+
+    旧実装はバナー＝翌月・ボタン＝当月でズレていた。worker リンクに year/month を
+    付与し、未提出のうち最も早い月（=当月6月）へ着地することを厳密に固定する。
+    """
+    _freeze_jst(app_module, monkeypatch)
+    login("admin", "Admin-Initial-Passphrase-2026")
+    client.post(
+        "/manage_users",
+        data={
+            "action": "add", "mode": "create",
+            "username": "w1", "password": "Worker-Pass-2026!",
+            "name": "ワーカー1", "role": "worker", "color": "#e8f5e9",
+        },
+    )
+    login("w1", "Worker-Pass-2026!")
+    body = client.get("/menu").get_data(as_text=True)
+    assert "未提出" in body
+    # 何も提出していない職員 → 着地は最も早い未提出月(=当月6月)に固定される
+    assert "/worker?" in body
+    assert "month=6" in body
+    assert "month=7" not in body  # 翌月ではなく当月へ着地（M-1の核心）
 
 
 def test_month_links_use_japan_time(app_module, monkeypatch):

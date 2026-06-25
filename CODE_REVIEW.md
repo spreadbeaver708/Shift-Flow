@@ -65,7 +65,7 @@
 
 | 検証 | 結果 |
 |---|---|
-| `PYTHONWARNINGS=error python3 -m pytest -q` | **120 passed（警告なし）** |
+| `PYTHONWARNINGS=error python3 -m pytest -q` | **128 passed（警告なし）**（commit 8d41ad3 時点） |
 | `python3 -m py_compile ...` | 成功 |
 | `python3 -m pip check` | 依存関係の破損なし |
 | `python3 -m pip_audit -r requirements.txt` | 既知脆弱性なし |
@@ -85,6 +85,8 @@
 ### 小規模運用として受容
 
 - レート制限は単一workerのメモリ内。複数worker化時はRedisへ移行する
+- ログイン保護はIP単位レート制限（20/分）＋弱いパスワードの拒否のみ。アカウント単位の連続失敗ロックは未実装。NIST SP 800-63B はアカウント単位のレート制限と単要素15文字を求めるため、機微情報運用へ変わる場合は再評価する（8文字運用は試用・小規模での受容判断）
+- `CF-Connecting-IP` の信頼（`TRUST_CF_CONNECTING_IP=1`）は、全インバウンドが Cloudflare/Render エッジを経由しオリジンへの直接到達経路を持たない構成を前提とする。Render 外へ移設する場合は `0` に戻すか、送信元を Cloudflare の IP レンジに制限する
 - MFAは未実装。機微情報を扱う運用へ変わる場合は再評価する
 - 頻出パスフレーズの拒否リストは小規模なローカル判定。外部漏えいDBとの完全照合ではない
 - ルート処理は主に `app.py` に残る。現規模では動作の追跡容易性を優先し、過度なBlueprint分割は保留する

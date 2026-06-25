@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 {% from "_macros.html" import back_link, month_switch %}
 
-{% block title %}希望管理{% endblock %}
+{% block title %}提出状況・締め切り{% endblock %}
 
 {% block content %}
 <header class="page-header">
-    <h1>希望管理</h1>
+    <h1>提出状況・締め切り</h1>
     <p>{{ year }}年{{ month }}月の提出状況です。</p>
 </header>
 {{ back_link(url_for('menu')) }}
@@ -18,9 +18,9 @@
 <section class="panel">
     <h2>締め切り日</h2>
     {% if locked %}
-    <p class="status-line"><span class="status-badge is-pending">締め切り済み</span> {{ deadline_label }}でスタッフの変更を締め切りました。</p>
+    <p class="status-line"><span class="status-badge is-locked">締め切り済み</span> {{ deadline_label }}で職員の変更を締め切りました。</p>
     {% elif deadline_label %}
-    <p class="status-line"><span class="status-badge is-done">受付中</span> {{ deadline_label }}になるとスタッフは変更できなくなります。</p>
+    <p class="status-line"><span class="status-badge is-open">受付中</span> {{ deadline_label }}になると職員は変更できなくなります。</p>
     {% else %}
     <p class="status-line">締め切りは設定されていません。</p>
     {% endif %}
@@ -51,10 +51,14 @@
     {% for item in items %}
         <tr>
             <td><strong>{{ item.name }}</strong>{% if item.role == 'admin' %} <small>管理者</small>{% endif %}</td>
-            <td><span class="status-badge {% if item.submitted %}is-done{% else %}is-pending{% endif %}">
+            <td><span class="status-badge {% if item.submitted %}is-done{% else %}is-attention{% endif %}">
                 {{ '提出済み' if item.submitted else '未提出' }}
             </span></td>
-            <td>{{ item.ok if item.submitted else '—' }}</td>
+            <td>
+                {%- if item.submitted -%}
+                    {%- if item.ok == 0 -%}<span class="all-off">0（全休?）</span>{%- else -%}{{ item.ok }}{%- endif -%}
+                {%- else -%}—{%- endif -%}
+            </td>
             <td>{{ item.last or '—' }}</td>
             <td><a class="btn btn-secondary" href="{{ url_for('staff_edit', username=item.username, year=year, month=month) }}">編集</a></td>
         </tr>

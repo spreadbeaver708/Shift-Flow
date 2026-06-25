@@ -59,10 +59,15 @@ def login(client):
 
 @pytest.fixture
 def admin_client(client, login):
-    """初期 admin としてログイン済み + 初回パスワード変更も済ませた状態。"""
-    # 1) admin/Admin-Initial-Passphrase-2026 でログイン → must_change_password=1 なので /change_password に強制誘導
+    """初期 admin としてログイン → 任意でパスワードを変更した状態を作る。
+
+    初回強制変更は撤廃済み（must_change_password 列は互換のため残るが常時 0）。
+    後続テストの前提として、初期PWでログイン→/change_password で新PWへ変更→
+    新PWで再ログイン、という通常フローを通すだけ（強制誘導は無い）。
+    """
+    # 1) 初期PWでログイン（強制変更は無く、そのままメニューへ）
     login("admin", "Admin-Initial-Passphrase-2026")
-    # 2) 新パスワードに変更
+    # 2) 任意のパスワード変更を実施
     resp = client.post(
         "/change_password",
         data={"password_current": "Admin-Initial-Passphrase-2026", "password_new": "Admin-Changed-Passphrase-2026"},

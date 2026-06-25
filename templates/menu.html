@@ -9,9 +9,9 @@
     <h1>メニュー</h1>
 </header>
 
-{% if unsubmitted %}
+{% if unsubmitted_months %}
 <div class="notice notice-warning" role="status">
-    {{ next_m }}月分のシフトが未提出です。
+    {{ unsubmitted_months | join('・') }}月分のシフトが未提出です。
 </div>
 {% endif %}
 {% if current_user.role == 'admin' and backup_error %}
@@ -31,7 +31,7 @@
     <div class="menu-grid">
         <a href="{{ url_for('submissions') }}" class="btn btn-primary">提出状況・締め切り</a>
         <a href="{{ url_for('admin') }}" class="btn btn-secondary">みんなの希望を見る</a>
-        <a href="{{ url_for('index') }}" class="btn btn-secondary">自分の希望を入力</a>
+        <a href="{{ url_for('index', year=worker_year, month=worker_month) }}" class="btn btn-secondary">自分の希望を入力</a>
     </div>
 </section>
 <section class="menu-group">
@@ -41,12 +41,29 @@
         <a href="{{ url_for('logs') }}" class="btn btn-secondary">操作ログ</a>
     </div>
 </section>
-{% if backup_success %}
-<p class="system-note">最終バックアップ: {{ backup_success | jst }}</p>
-{% endif %}
+<section class="menu-group">
+    <h2>バックアップ</h2>
+    {% if backup_error %}
+    <p class="status-line"><span class="status-badge is-pending">要対応</span> 最新の保存に失敗しています。「使い方」の手順を確認してください。</p>
+    {% elif backup_success %}
+    <p class="status-line"><span class="status-badge is-done">正常</span> 自動で保存しています。</p>
+    {% else %}
+    <p class="status-line">まだ自動バックアップの記録がありません。</p>
+    {% endif %}
+    {% if backup_success %}<p class="system-note">最終バックアップ: {{ backup_success | jst }}</p>{% endif %}
+    {% if external_overdue %}
+    <p class="status-line"><span class="status-badge is-attention">未確認</span> 月次の外部保存がしばらく記録されていません。最新の月次バックアップを手元へ保存してください。</p>
+    {% elif external_checked %}
+    <p class="system-note">外部保存の最終確認: {{ external_checked | jst }}</p>
+    {% endif %}
+    <form method="post" action="{{ url_for('backup_check') }}" class="inline-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-secondary">外部保存を確認した</button>
+    </form>
+</section>
 {% else %}
 <section class="menu-group menu-group-primary">
-    <a href="{{ url_for('worker') }}" class="btn btn-primary btn-large">シフト希望を入力</a>
+    <a href="{{ url_for('worker', year=worker_year, month=worker_month) }}" class="btn btn-primary btn-large">シフト希望を入力</a>
 </section>
 {% endif %}
 

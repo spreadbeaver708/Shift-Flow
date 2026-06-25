@@ -17,7 +17,7 @@
 </header>
 
 {% if editor_is_admin %}
-{{ back_link(url_for('submissions', year=year, month=month), '希望管理に戻る') }}
+{{ back_link(url_for('submissions', year=year, month=month), '提出状況・締め切りに戻る') }}
 {% else %}
 {{ back_link(url_for('menu')) }}
 {% endif %}
@@ -25,12 +25,12 @@
 
 {% if read_only %}
 <div class="notice notice-warning" role="status">
-    <strong>{{ deadline_label }}で締め切りました。</strong>
+    <strong>【見るだけ】{{ deadline_label }}で締め切りました。</strong>
     変更できません。直したいときは管理者に伝えてください。
 </div>
 {% elif editor_is_admin and deadline_label %}
 <div class="notice" role="status">
-    スタッフの締め切りは <strong>{{ deadline_label }}</strong> です。管理者はいつでも変更できます。
+    職員の締め切りは <strong>{{ deadline_label }}</strong> です。管理者はいつでも変更できます。
 </div>
 {% elif deadline_label %}
 <div class="notice" role="status">
@@ -43,7 +43,7 @@
     <strong>保存しました。</strong>
     <div class="completion-actions">
         {% if editor_is_admin %}
-        <a class="btn btn-primary" href="{{ url_for('submissions', year=year, month=month) }}">希望管理に戻る（次の人を選ぶ）</a>
+        <a class="btn btn-primary" href="{{ url_for('submissions', year=year, month=month) }}">提出状況・締め切りに戻る（次の人を選ぶ）</a>
         <a class="btn btn-secondary" href="{{ url_for('menu') }}">メニューへ戻る</a>
         {% else %}
         <a class="btn btn-primary" href="{{ nav_next_url }}">翌月も入力する</a>

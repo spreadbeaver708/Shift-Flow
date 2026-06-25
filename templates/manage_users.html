@@ -24,9 +24,10 @@
         </div>
         <div class="field">
             <label for="f_pass">パスワード</label>
-            <p class="field-help">8文字以上。修正時は空欄なら変更しません。</p>
+            <p class="field-help">8文字以上。名前・ID・単純な数字は避けてください。修正時は空欄なら変更しません。</p>
             <input type="password" name="password" id="f_pass"
                    minlength="8" maxlength="128" autocomplete="new-password">
+            <p class="field-help">再発行してもログイン中の端末はすぐにログアウトされません（最大24時間）。すぐ止めるには一覧の「停止」を使います。</p>
         </div>
         <div class="field">
             <label for="f_name">名前</label>
@@ -57,7 +58,7 @@
     <article class="person-row {% if not user[3] %}is-inactive{% endif %}">
         <div>
             <input class="color-swatch" type="color" value="{{ user[4] }}"
-                   disabled aria-label="{{ user[2] }}さんの表示色">
+                   disabled aria-hidden="true" tabindex="-1">
             <strong>{{ user[2] }}</strong>
             <small>{{ user[0] }}・{{ '管理者' if user[1] == 'admin' else '職員' }}・{{ '有効' if user[3] else '停止中' }}</small>
         </div>
@@ -75,7 +76,7 @@
                 </button>
             </form>
             {% else %}
-            <span class="protected-label">保護</span>
+            <span class="protected-label" aria-disabled="true" title="初期管理者は停止できません">保護（停止不可）</span>
             {% endif %}
         </div>
     </article>

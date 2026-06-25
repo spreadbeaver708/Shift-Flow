@@ -24,6 +24,13 @@ COMMON_PASSWORDS = {
     "shiftflow",
     "adminadmin",
     "administrator",
+    # 実運用で選ばれやすい弱い候補を最小限追加（年号付き・サービス名由来）。
+    "shiftflow2026",
+    "shiftflow2025",
+    "password2026",
+    "password2025",
+    "admin1234",
+    "shift1234",
 }
 
 

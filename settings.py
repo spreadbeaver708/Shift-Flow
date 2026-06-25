@@ -51,6 +51,7 @@ class Settings:
     daily_backup_keep: int
     monthly_backup_keep: int
     audit_retention: int
+    trusted_hosts: tuple
 
 
 def load_settings(instance_path):
@@ -92,6 +93,12 @@ def load_settings(instance_path):
     login_rate_limit = os.environ.get("LOGIN_RATE_LIMIT", "20 per minute").strip()
     if not login_rate_limit:
         raise RuntimeError("LOGIN_RATE_LIMIT を空にすることはできません")
+
+    # Host ヘッダ検証（任意）。設定時のみ Flask が Host を照合し、不一致は 400。
+    # 未設定なら無効（現行挙動）＝ヘルスチェックや初期設定で締め出さない安全側の既定。
+    # 例: TRUSTED_HOSTS=shift-flow.onrender.com,example.com
+    raw_hosts = os.environ.get("TRUSTED_HOSTS", "")
+    trusted_hosts = tuple(h.strip() for h in raw_hosts.split(",") if h.strip())
     rate_limit_storage_uri = os.environ.get(
         "RATELIMIT_STORAGE_URI", "memory://"
     ).strip()
@@ -113,4 +120,5 @@ def load_settings(instance_path):
         daily_backup_keep=_integer("BACKUP_KEEP", 14, minimum=1, maximum=365),
         monthly_backup_keep=_integer("MONTHLY_BACKUP_KEEP", 12, minimum=1, maximum=120),
         audit_retention=_integer("AUDIT_RETENTION", 10000, minimum=100, maximum=1_000_000),
+        trusted_hosts=trusted_hosts,
     )
