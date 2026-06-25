@@ -5,8 +5,9 @@
 
 {% block content %}
 <header class="page-header">
-    <p class="eyebrow">{{ current_user.name }}さん</p>
+    <p class="eyebrow brand">Shift-Flow</p>
     <h1>メニュー</h1>
+    <p>{{ current_user.name }}さん</p>
 </header>
 
 {% if unsubmitted_months %}
