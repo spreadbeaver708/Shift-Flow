@@ -3,7 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="シフト希望をスマホからかんたんに提出・集計できるアプリ">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    {# OGP（SNS共有時のカード表示）。画像は static/ogp.png を 1200×630 で配置 #}
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Shift-Flow">
+    <meta property="og:title" content="{% block og_title %}Shift-Flow{% endblock %}">
+    <meta property="og:description" content="シフト希望をスマホからかんたんに提出・集計できるアプリ">
+    <meta property="og:image" content="{{ url_for('static', filename='ogp.png', _external=True) }}">
+    <meta property="og:url" content="{{ request.url_root }}">
+    <meta name="twitter:card" content="summary_large_image">
     <title>{% block title %}Shift-Flow{% endblock %}</title>
 </head>
 <body class="{% block body_class %}{% endblock %}">

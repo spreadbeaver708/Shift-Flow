@@ -156,6 +156,18 @@ def test_backup_check_requires_admin(admin_client):
     assert resp.status_code == 403
 
 
+# ===== OGP・ブランド名 =====
+
+
+def test_ogp_meta_and_brand_present(admin_client):
+    login_body = admin_client.get("/login").get_data(as_text=True)
+    assert 'property="og:title"' in login_body
+    assert 'property="og:image"' in login_body
+    assert 'name="twitter:card"' in login_body
+    menu = admin_client.get("/menu").get_data(as_text=True)
+    assert "Shift-Flow" in menu
+
+
 # ===== B4: _serialize_detail のJSON化・切り詰め =====
 
 

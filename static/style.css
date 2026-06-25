@@ -96,6 +96,13 @@ textarea {
     letter-spacing: 0.04em;
 }
 
+/* アプリ名（ブランド）。--page-header p の muted を上書きするため詳細度を上げる */
+.page-header .brand {
+    color: var(--primary);
+    font-weight: 800;
+    letter-spacing: 0.06em;
+}
+
 /* D4: ボタンの役割を固定する。
    btn-primary(緑)=主要操作・保存・進む / btn-secondary(白)=戻る・一覧・補助
    btn-danger(赤枠)=停止・失敗対応 / link-button=低頻度の補助。色の意味は
@@ -497,6 +504,7 @@ input[type="color"] {
 
 .calendar-table {
     table-layout: fixed;
+    min-width: 640px; /* スマホでは横スクロール（.table-scroll）にして列幅を確保し、名前のはみ出しを防ぐ */
 }
 
 .calendar-table th,
@@ -647,8 +655,11 @@ button.shift-tag {
     color: var(--muted);
 }
 
-.color-swatch {
+/* input[type="color"](詳細度0,1,1)に勝つよう input.color-swatch(0,1,1・後勝ち)で指定。
+   これが無いとフォーム用の 70×46px が適用され、装飾スウォッチが巨大化して名前がはみ出す。 */
+input.color-swatch {
     display: inline-block;
+    flex-shrink: 0;
     width: 24px;
     height: 24px;
     min-height: 24px;
@@ -670,6 +681,21 @@ button.shift-tag {
     color: var(--muted);
     font-size: 0.85rem;
     white-space: nowrap;
+}
+
+/* D3: 「修正」ボタンの左端を全行でそろえる。操作スロット(修正/停止/保護)を等幅にし、
+   右寄せすることで、保護中の管理者行でも修正ボタンが他行と縦に整列する。 */
+.row-actions {
+    justify-content: flex-end;
+}
+
+.row-actions .btn,
+.row-actions .protected-label {
+    min-width: 88px;
+}
+
+.row-actions form {
+    margin: 0;
 }
 
 .help-list dt {
