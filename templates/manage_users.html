@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import back_link %}
+{% from "_macros.html" import back_link, password_toggle, password_toggle_script %}
 
 {% block title %}ユーザー管理{% endblock %}
 
@@ -10,7 +10,7 @@
 </header>
 {{ back_link(url_for('menu')) }}
 
-<section class="panel">
+<section class="panel" id="user-form-panel">
     <h2 id="user-form-title">新しい職員を追加</h2>
     <form method="post" id="user-form" class="stack-form" aria-labelledby="user-form-title">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -27,6 +27,7 @@
             <p class="field-help">8文字以上。名前・ID・単純な数字は避けてください。修正時は空欄なら変更しません。</p>
             <input type="password" name="password" id="f_pass"
                    minlength="8" maxlength="128" autocomplete="new-password">
+            {{ password_toggle(["f_pass"]) }}
             <p class="field-help">再発行してもログイン中の端末はすぐにログアウトされません（最大24時間）。すぐ止めるには一覧の「停止」を使います。</p>
         </div>
         <div class="field">
@@ -86,6 +87,7 @@
 
 {% block scripts %}
 <script nonce="{{ csp_nonce }}">
+var formPanel = document.getElementById('user-form-panel');
 var formTitle = document.getElementById('user-form-title');
 var fieldId = document.getElementById('f_id');
 var fieldMode = document.getElementById('f_mode');
@@ -99,6 +101,9 @@ function resetForm() {
     fieldId.readOnly = false;
     document.getElementById('user-form').reset();
     document.getElementById('f_color').value = '#e8f5e9';
+    // form.reset() はチェックを外しても change を発火しないため、表示状態も明示的に戻す
+    document.getElementById('f_pass').type = 'password';
+    formPanel.classList.remove('is-editing');
     formTitle.textContent = '新しい職員を追加';
     submitButton.textContent = '登録';
     resetButton.hidden = true;
@@ -116,6 +121,7 @@ document.querySelectorAll('.btn-edit').forEach(function (button) {
         document.getElementById('f_role').value = data.role;
         document.getElementById('f_color').value = data.color;
         document.getElementById('f_pass').value = '';
+        formPanel.classList.add('is-editing');
         formTitle.textContent = data.name + 'さんを修正';
         submitButton.textContent = '修正内容を保存';
         resetButton.hidden = false;
@@ -124,4 +130,5 @@ document.querySelectorAll('.btn-edit').forEach(function (button) {
 });
 resetButton.addEventListener('click', resetForm);
 </script>
+{{ password_toggle_script(csp_nonce) }}
 {% endblock %}

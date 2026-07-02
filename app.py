@@ -183,6 +183,24 @@ def safe_ym(default_y, default_m):
     return coerce_year_month(request.args, default_y, default_m)
 
 
+def staff_saveable_months():
+    """職員が保存できる年月の集合（前月・当月・翌月）。
+
+    画面が提供するのは当月・翌月のみだが、月替わり深夜0時をまたいだ送信を
+    弾かないよう前月まで許容する。これより外の月は、締め切り未設定の過去月の
+    書き換えや遠い将来月へのごみ登録につながるため、直接 POST でも拒否する。
+    管理者（/ と /staff/<u>）は過去月の修正が業務上必要なので制限しない。
+    """
+    first = now_jst().replace(day=1)
+    prev_last = first - timedelta(days=1)
+    next_first = first + timedelta(days=32)
+    return {
+        (prev_last.year, prev_last.month),
+        (first.year, first.month),
+        (next_first.year, next_first.month),
+    }
+
+
 def resolve_ym(default_y, default_m):
     """保存先となる年月を一意に決める（GET=クエリ / POST=隠しフィールド+クエリ）。
     呼び出し側はこの 1 回の結果をロック判定と保存の両方に使い、月のズレを防ぐ。
@@ -341,7 +359,7 @@ def add_security_headers(resp):
         try:
             db_manager.scheduled_backup()
         except Exception as exc:
-            print(f"[backup] 自動バックアップ失敗: {exc}")
+            app.logger.warning("自動バックアップに失敗しました: %s", exc)
     return resp
 
 
@@ -666,9 +684,18 @@ def handle_input(
 @app.route("/", methods=["GET", "POST"])
 def index():
     # 管理者自身の希望入力。管理者は締め切り後も編集できる（ロック対象外）。
-    guard = deny_if_not_admin()
-    if guard:
-        return guard
+    # 「/」はブックマーク・ドメイン直打ちで職員も最も踏みやすい入口のため、
+    # 403（authz_fail 記録）にせず本人の入力画面へ案内する。管理専用画面の
+    # 403 + authz_fail 記録（deny_if_not_admin）は従来どおり。
+    if not require_login():
+        return redirect(url_for("login"))
+    if not require_admin():
+        # 年月クエリは入力画面へ引き継ぐ（None は url_for が省略する）
+        return redirect(url_for(
+            "worker",
+            year=request.args.get("year", type=int),
+            month=request.args.get("month", type=int),
+        ))
     now = now_jst()
     year, month = resolve_ym(now.year, now.month)
     with closing(get_db()) as conn:
@@ -692,6 +719,9 @@ def worker():
     if request.method == "POST" and locked:
         flash("締め切り後のため、見るだけです。変更は管理者に伝えてください。")
         return redirect(url_for("worker", year=year, month=month))
+    if request.method == "POST" and (year, month) not in staff_saveable_months():
+        flash("この月は保存できません。今月か翌月を選んでください。")
+        return redirect(url_for("worker"))
     return handle_input(
         "shift_form.html", g.user.username, g.user.name,
         year=year, month=month, redirect_endpoint="worker",
@@ -779,7 +809,7 @@ def manage_users():
                 else:
                     u = (request.form.get("username") or "").strip()
                 if not USERNAME_RE.match(u):
-                    flash("ユーザーIDの形式が不正です（半角英数記号 1〜32文字）")
+                    flash("ユーザーIDは半角の英数字と . _ @ - で、1〜32文字にしてください")
                 elif action == "add":
                     # F: REPLACE INTO を廃止。既存なら UPDATE、無ければ INSERT。
                     p = request.form.get("password") or ""
@@ -830,7 +860,7 @@ def manage_users():
                         <= 1
                     ):
                         # 最後の有効な管理者は降格できない
-                        flash("有効な管理者が最低1人残るよう、最後の管理者を降格することはできません")
+                        flash("管理者が0人になるため変更できません。先に別の管理者を追加してください")
                     else:
                         if existing:
                             # 表示名変更時はシフト名も連動（J の根本対応はフェーズ3）
@@ -897,7 +927,7 @@ def manage_users():
                                     "SELECT COUNT(*) FROM users WHERE role='admin' AND is_active=1"
                                 ).fetchone()[0]
                                 if admin_count <= 1:
-                                    flash("最後の有効な管理者を停止することはできません")
+                                    flash("管理者が0人になるため停止できません。先に別の管理者を追加してください")
                                     allow = False
                         if allow:
                             new_active = 0 if current_active == 1 else 1

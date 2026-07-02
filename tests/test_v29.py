@@ -96,10 +96,17 @@ def test_client_ip_ignores_cf_when_not_trusted(app_module):
 # ===== 認可統一 ＋ authz_fail =====
 
 
-def test_worker_gets_403_on_index_and_manage_users(admin_client, app_module):
-    """V29: 職員が `/`・`/manage_users` にアクセスすると 403（旧: login へ redirect）。"""
+def test_worker_index_redirects_manage_users_403(admin_client, app_module):
+    """「/」は最も踏みやすい入口のため、職員はエラーにせず本人の入力画面へ案内する
+    （2026-07-02 改善。V29 時点では 403）。管理専用画面は従来どおり 403。"""
     _become_worker(admin_client)
-    assert admin_client.get("/").status_code == 403
+    resp = admin_client.get("/", follow_redirects=False)
+    assert resp.status_code == 302
+    assert "/worker" in resp.headers["Location"]
+    # 年月クエリは引き継ぐ（表示月がリダイレクトで変わらない）
+    resp = admin_client.get("/?year=2030&month=5", follow_redirects=False)
+    assert "year=2030" in resp.headers["Location"]
+    assert "month=5" in resp.headers["Location"]
     assert admin_client.get("/manage_users").status_code == 403
 
 

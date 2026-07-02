@@ -17,7 +17,7 @@
 {% endif %}
 {% if current_user.role == 'admin' and backup_error %}
 <div class="notice notice-error" role="alert">
-    バックアップに失敗しています。管理者向け手順を確認してください。
+    バックアップに失敗しています。「使い方」の対処手順を確認してください。
 </div>
 {% endif %}
 {% if current_user.role == 'admin' and disk_low %}
@@ -45,7 +45,7 @@
 <section class="menu-group">
     <h2>バックアップ</h2>
     {% if backup_error %}
-    <p class="status-line"><span class="status-badge is-pending">要対応</span> 最新の保存に失敗しています。「使い方」の手順を確認してください。</p>
+    <p class="status-line"><span class="status-badge is-pending">要対応</span> 最新の保存に失敗しています。「使い方」の対処手順を確認してください。</p>
     {% elif backup_success %}
     <p class="status-line"><span class="status-badge is-done">正常</span> 自動で保存しています。</p>
     {% else %}

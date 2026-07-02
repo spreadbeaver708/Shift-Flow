@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import password_toggle, password_toggle_script %}
 
 {% block title %}ログイン{% endblock %}
 {% block container_class %}container-narrow{% endblock %}
@@ -22,9 +23,11 @@
         <label for="login_password">パスワード</label>
         <input id="login_password" type="password" name="password" required
                autocomplete="current-password">
+        {{ password_toggle(["login_password"]) }}
     </div>
     <button type="submit" class="btn btn-primary btn-block">ログイン</button>
 </form>
+{{ password_toggle_script(csp_nonce) }}
 
 <div class="sub-links">
     <a href="{{ url_for('help_page') }}">使い方を見る</a>

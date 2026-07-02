@@ -1,12 +1,12 @@
 # Shift-Flow 改善状況
 
 更新日: 2026-06-25
-根拠: [CODE_REVIEW.md](CODE_REVIEW.md) / [REVIEW_2026-06-25.md](REVIEW_2026-06-25.md)
+根拠: [docs/CODE_REVIEW.md](docs/CODE_REVIEW.md) / [docs/REVIEW_2026-06-25.md](docs/REVIEW_2026-06-25.md)
 
 ## 【統合】最終修正プラン（2026-06-25 / REVIEW × Codex 統合）
 
 本節は Codex 計画（下記「## GPT/Gemini レビュー統合版の判断」以降）と Claude Code レビュー
-（[REVIEW_2026-06-25.md](REVIEW_2026-06-25.md)）を突き合わせて一本化した、実装の正本ロードマップ。
+（[docs/REVIEW_2026-06-25.md](docs/REVIEW_2026-06-25.md)）を突き合わせて一本化した、実装の正本ロードマップ。
 凡例 〔R〕=レビュー由来 〔C〕=Codex由来 〔R+C〕=統合。チェックは実装進捗。
 
 ### 比較の総括（クリティカル）

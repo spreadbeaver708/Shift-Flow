@@ -2,6 +2,30 @@
 <a href="{{ href }}" class="btn btn-secondary btn-back">← {{ label }}</a>
 {%- endmacro %}
 
+{# パスワードの表示/非表示切替。打ち間違いによる締め出し（特に変更直後の
+   強制再ログイン）を防ぐ。target_ids には input の id を列挙する。 #}
+{% macro password_toggle(target_ids) -%}
+<label class="pw-toggle">
+    <input type="checkbox" class="pw-toggle-input" data-targets="{{ target_ids | join(' ') }}">
+    パスワードを表示
+</label>
+{%- endmacro %}
+
+{% macro password_toggle_script(nonce) -%}
+<script nonce="{{ nonce }}">
+    document.querySelectorAll('.pw-toggle-input').forEach(function (box) {
+        box.addEventListener('change', function () {
+            box.dataset.targets.split(' ').forEach(function (id) {
+                var input = document.getElementById(id);
+                if (input) {
+                    input.type = box.checked ? 'text' : 'password';
+                }
+            });
+        });
+    });
+</script>
+{%- endmacro %}
+
 {% macro month_switch(now_url, next_url, year, month, now_y, now_m, next_y, next_m) -%}
 <nav class="month-switch" aria-label="表示する月">
     <a href="{{ now_url }}"

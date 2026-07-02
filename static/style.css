@@ -195,6 +195,15 @@ textarea {
     color: #7a1710;
 }
 
+/* flash は全件表示（1件でも複数でも同じ見た目になるよう余白は行間のみ） */
+.notice-line {
+    margin: 0;
+}
+
+.notice-line + .notice-line {
+    margin-top: 6px;
+}
+
 .completion-actions,
 .modal-actions,
 .row-actions,
@@ -224,6 +233,24 @@ textarea {
     margin: 0;
     color: var(--muted);
     font-size: 0.875rem;
+}
+
+/* パスワードの表示/非表示切替。44px のタップ領域を確保する */
+.pw-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 44px;
+    color: var(--muted);
+    font-size: 0.875rem;
+    cursor: pointer;
+}
+
+.pw-toggle input {
+    width: 20px;
+    height: 20px;
+    margin: 0;
+    accent-color: var(--primary);
 }
 
 input[type="text"],
@@ -622,6 +649,14 @@ button.shift-tag {
     border: 1px solid var(--border);
     border-radius: var(--radius);
     background: #fff;
+}
+
+/* ユーザー管理: 修正モード中のフォームを注意色で囲い、
+   「新規のつもりが修正だった」誤操作に気づけるようにする */
+.panel.is-editing {
+    border-color: var(--warning);
+    box-shadow: inset 0 0 0 1px var(--warning);
+    background: var(--warning-bg);
 }
 
 .panel h2,
