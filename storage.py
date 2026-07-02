@@ -1,4 +1,5 @@
 import glob
+import logging
 import os
 import shutil
 import sqlite3
@@ -18,6 +19,8 @@ from time_utils import now_utc
 
 
 SCHEMA_VERSION = 31
+
+logger = logging.getLogger(__name__)
 
 
 class DatabaseManager:
@@ -203,7 +206,7 @@ class DatabaseManager:
                 try:
                     self.scheduled_backup()
                 except Exception as exc:
-                    print(f"[backup] 自動バックアップ失敗: {exc}")
+                    logger.warning("自動バックアップに失敗しました: %s", exc)
             self._ready = True
 
     def reconcile_schema(self):

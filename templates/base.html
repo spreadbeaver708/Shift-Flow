@@ -20,7 +20,9 @@
         {% with messages = get_flashed_messages() %}
             {% if messages %}
                 <div class="notice" role="status" aria-live="polite">
-                    {{ messages[0] }}
+                    {% for message in messages %}
+                    <p class="notice-line">{{ message }}</p>
+                    {% endfor %}
                 </div>
             {% endif %}
         {% endwith %}

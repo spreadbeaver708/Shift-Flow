@@ -5,7 +5,7 @@
 - 公開: Render Starter
 - DB: SQLite + 永続ディスク
 - 想定: 約10名
-- 詳細な検証結果: [CODE_REVIEW.md](CODE_REVIEW.md)
+- 最新のレビュー: [REVIEW_2026-07-02.md](REVIEW_2026-07-02.md)（過去分は [docs/](docs/)）
 - 今後の改善: [IMPROVEMENTS.md](IMPROVEMENTS.md)
 
 ## 使い方
