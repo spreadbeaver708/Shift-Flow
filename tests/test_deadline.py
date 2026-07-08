@@ -129,11 +129,17 @@ def test_worker_post_outside_month_window_rejected(admin_client, app_module):
     assert _count(app_module, "taro", year=far, month=M) == 0
 
 
-def test_worker_can_save_previous_month(admin_client, app_module):
-    """月替わり深夜0時をまたいだ送信を弾かないよう、前月は許容する。"""
+def test_worker_can_save_previous_month(admin_client, app_module, monkeypatch):
+    """月替わり深夜0時をまたいだ送信を弾かないよう、前月は許容する。
+
+    「前月」はサーバの現在月に対する相対値。実行がちょうど月境界をまたぐと
+    実クロックの現在月がずれてこのテスト自身が時限故障するため、now_jst を
+    当月15日に固定し、保存先ウィンドウを決定論的にする。"""
     _add_worker(admin_client)
     _login_worker(admin_client)
-    prev_last = datetime(Y, M, 1, tzinfo=JST) - timedelta(days=1)
+    fixed = datetime(Y, M, 15, 12, 0, tzinfo=JST)
+    monkeypatch.setattr(app_module, "now_jst", lambda: fixed)
+    prev_last = fixed.replace(day=1) - timedelta(days=1)
     resp = _submit(admin_client, year=prev_last.year, month=prev_last.month)
     assert resp.status_code == 302
     assert "submitted=true" in resp.headers["Location"]
