@@ -5,7 +5,7 @@
 #   このファイルから Web サービス・データベースの保存場所・HTTPS などが自動で作られます。
 #
 # あなたが手で入力するのは ADMIN_INIT_PASSWORD（管理者の初期パスワード）だけです。
-# 詳しい手順は README.md「2. Render で公開する」を参照してください。
+# 詳しい手順は README.md「Render で公開する」を参照してください。
 
 services:
   - type: web
