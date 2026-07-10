@@ -64,9 +64,11 @@ PY
 echo ""
 echo "4) 次のコマンドで複製DBを使ってアプリを起動し、実際の画面で確認してください:"
 echo ""
-echo "   SHIFT_DB_PATH=$PWD/$DEST python3 app.py"
+# ポート5050を使う: macOS は AirPlay が 5000 番を使っていることがあり、
+# Flask 既定の 5000 だと「起動できない・変な応答が返る」で初心者が詰まるため。
+echo "   SHIFT_DB_PATH=$PWD/$DEST python3 -m flask --app app run --port 5050"
 echo ""
-echo "   ブラウザで http://127.0.0.1:5000 を開き、いつものIDでログインして"
+echo "   ブラウザで http://127.0.0.1:5050 を開き、いつものIDでログインして"
 echo "   利用者・シフト希望・締め切り・操作ログが戻っていることを確認します。"
 echo "   確認できたら Ctrl+C で止めてください。これで復元リハーサル完了です。"
 echo "   （確認日を docs/ROADMAP.md の記録欄に書いておきましょう）"

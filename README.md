@@ -62,7 +62,7 @@ ls -lt /var/data/backups/
 sqlite3 /var/data/backups/<対象ファイル>.db "PRAGMA integrity_check;"
 ```
 
-手元への保存は、サービス画面右上「Connect」→「SSH」に表示される接続先を使い、**自分のパソコン**から次を実行します:
+手元への保存は、サービス画面右上「Connect」→「SSH」に表示される接続先を使い、**自分のパソコン**から次を実行します（初回だけ、Render のアカウント設定に SSH 公開鍵の登録が必要です。Render の「SSH」ドキュメントの手順どおりに一度設定すれば以後は不要です）:
 
 ```bash
 scp <SSH接続先>:/var/data/backups/monthly-YYYYMM.db ~/Downloads/
