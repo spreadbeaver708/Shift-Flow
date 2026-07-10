@@ -8,4 +8,7 @@ instance/
 .venv/
 *.pyc
 .env
-.claude/
+# .claude/ はローカル設定（settings.local.json 等）を無視しつつ、
+# 共有したいプロジェクトスキル（.claude/skills/）だけを追跡する
+.claude/*
+!.claude/skills
